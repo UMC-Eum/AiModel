@@ -1,11 +1,15 @@
+from __future__ import annotations
+
 from datetime import datetime
+from typing import Any, Dict, Optional
+
 from fastapi import APIRouter, Query
 
 router = APIRouter(tags=["matches"])
 
 
 @router.get("/v1/matches/recommendations")
-async def list_recommendations(cursor: str | None = Query(default=None), limit: int | None = Query(default=None)) -> dict:
+async def list_recommendations(cursor: Optional[str] = Query(default=None), limit: Optional[int] = Query(default=None)) -> Dict[str, Any]:
   # TODO: Implement similarity scoring (vibe vectors + keywords) and pagination.
     now = datetime.utcnow().isoformat() + "Z"
     return {
