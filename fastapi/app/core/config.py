@@ -8,6 +8,8 @@ class Settings(BaseSettings):
     stt_bucket: str = Field(default="")
     llm_endpoint: str = Field(default="")
     openai_api_key: str = Field(default="")
+    mysql_api_endpoint: str = Field(default="")  # (옵션) HTTP 프록시 엔드포인트
+    mysql_dsn: str = Field(default="")  # 예: mysql+aiomysql://user:pass@host:3306/dbname
 
     class Config:
         # 현재 작업 디렉터리(.env)와 상위(AiModel/.env) 모두 탐색
