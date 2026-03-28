@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional
 from urllib.parse import urlparse
 
 import httpx
@@ -133,3 +133,30 @@ async def save_user_keywords(vector_id: str, user_id: Optional[int], keywords: I
         return
 
     logging.warning("mysql_dsn/mysql_api_endpoint 미설정 - 키워드 저장 생략")
+
+
+async def check_mysql_health() -> Dict[str, Any]:
+    """Check MySQL connectivity using the configured DSN."""
+    settings = get_settings()
+    dsn = settings.mysql_dsn or ""
+
+    if not dsn:
+        return {"status": "skipped", "reason": "mysql_dsn not configured"}
+
+    cfg = {**_parse_mysql_dsn(dsn), "connect_timeout": 5}
+    conn = None
+    try:
+        conn = await aiomysql.connect(**cfg)
+        async with conn.cursor() as cur:
+            await cur.execute("SELECT 1")
+            await cur.fetchone()
+    except Exception as exc:
+        return {"status": "error", "reason": str(exc)}
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+    return {"status": "ok"}
