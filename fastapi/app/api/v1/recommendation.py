@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import List
 
 import numpy as np
@@ -14,7 +15,9 @@ from app.models.user import User, UserStatus
 
 router = APIRouter(tags=["recommendation"])
 
-SIMILARITY_THRESHOLD = 0.5
+logger = logging.getLogger(__name__)
+
+SIMILARITY_THRESHOLD = 0.3
 MAX_RESULTS = 20
 
 
@@ -55,16 +58,30 @@ async def recommend_users(userId: int = Query(..., description="NestJS가 전달
         requester_row = await db.execute(select(User).where(User.id == userId))
         requester = requester_row.scalar_one_or_none()
     except Exception as exc:  # DB 오류를 500으로 보고
+        logger.exception("requester fetch failed", extra={"userId": userId})
         return _fail(500, f"DB 조회 실패: {exc}")
 
     if requester is None:
+        logger.warning("requester not found", extra={"userId": userId})
         return _fail(404, "userId가 존재하지 않습니다.")
 
     requester_vector = _to_vector(requester.vibeVector)
     if not requester_vector:
+        logger.warning(
+            "requester vector missing",
+            extra={"userId": userId, "sex": requester.sex, "status": requester.status.name},
+        )
         return _fail(400, "요청 유저의 vibeVector가 없습니다.")
 
     requester_sex = requester.sex
+    logger.info(
+        "requester loaded",
+        extra={
+            "userId": userId,
+            "sex": requester_sex.value if requester_sex else None,
+            "vector_len": len(requester_vector),
+        },
+    )
 
     # 2) 후보군 조회 (조건 필터)
     try:
@@ -79,16 +96,27 @@ async def recommend_users(userId: int = Query(..., description="NestJS가 전달
         )
         candidates = candidates_row.scalars().all()
     except Exception as exc:
+        logger.exception("candidate fetch failed", extra={"userId": userId})
         return _fail(500, f"후보군 조회 실패: {exc}")
+
+    logger.info(
+        "candidates fetched",
+        extra={"userId": userId, "candidate_count": len(candidates)},
+    )
 
     # 3) 유사도 계산 및 정렬
     scored = []
     for candidate in candidates:
         candidate_vec = _to_vector(candidate.vibeVector)
         if not candidate_vec:
+            logger.debug("skip candidate without vector", extra={"candidateId": candidate.id})
             continue
         score = _cosine_similarity(requester_vector, candidate_vec)
         if score < SIMILARITY_THRESHOLD:
+            logger.debug(
+                "skip candidate below threshold",
+                extra={"candidateId": candidate.id, "score": score, "threshold": SIMILARITY_THRESHOLD},
+            )
             continue
         scored.append(
             {
@@ -100,6 +128,11 @@ async def recommend_users(userId: int = Query(..., description="NestJS가 전달
                 "similarityScore": round(score, 4),
             }
         )
+
+    logger.info(
+        "scoring done",
+        extra={"userId": userId, "scored_count": len(scored), "threshold": SIMILARITY_THRESHOLD},
+    )
 
     scored.sort(key=lambda x: x["similarityScore"], reverse=True)
     top_n = scored[:MAX_RESULTS]
