@@ -2,7 +2,8 @@ import enum
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import JSON, BigInteger, Column, DateTime, Enum, Integer, String
+from sqlalchemy import JSON, BigInteger, Column, Enum, Integer, String
+from sqlalchemy.dialects.mysql import DATETIME
 from sqlalchemy.sql import func
 
 from app.database import Base
@@ -26,13 +27,13 @@ class User(Base):
     __tablename__ = "User"
 
     id = Column(BigInteger, primary_key=True, autoincrement=True)
-    birthdate = Column(DateTime(fsp=6), nullable=False)
+    birthdate = Column(DATETIME(fsp=6), nullable=False)
     email = Column(String(255), nullable=False)
     sex = Column(Enum(SexEnum), nullable=False, default=SexEnum.M, server_default=SexEnum.M.value)
-    createdAt = Column(DateTime(fsp=6), nullable=False, server_default=func.now())
+    createdAt = Column(DATETIME(fsp=6), nullable=False, server_default=func.now())
     nickname = Column(String(20), nullable=False)
-    updatedAt = Column(DateTime(fsp=6), nullable=False, server_default=func.now(), onupdate=func.now())
-    deletedAt = Column(DateTime(fsp=6), nullable=True)
+    updatedAt = Column(DATETIME(fsp=6), nullable=False, server_default=func.now(), onupdate=func.now())
+    deletedAt = Column(DATETIME(fsp=6), nullable=True)
     idealVoiceUrl = Column(String(512), nullable=True)
     introVoiceUrl = Column(String(512), nullable=False)
     introText = Column(String(255), nullable=False)
