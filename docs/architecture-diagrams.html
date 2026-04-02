@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>이음 AI 파이프라인 아키텍처</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Noto Sans KR', 'Segoe UI', sans-serif;
+      background: #f0f2f5;
+      color: #1a1a2e;
+      padding: 40px 20px;
+    }
+    h1 {
+      text-align: center;
+      font-size: 2rem;
+      color: #2c2c54;
+      margin-bottom: 8px;
+      font-weight: 700;
+    }
+    .subtitle {
+      text-align: center;
+      color: #6c6c8a;
+      margin-bottom: 48px;
+      font-size: 1rem;
+    }
+    .section {
+      background: white;
+      border-radius: 16px;
+      padding: 36px;
+      margin-bottom: 40px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+      max-width: 1100px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+    .section:last-child { margin-bottom: 0; }
+    h2 {
+      font-size: 1.35rem;
+      color: #2c2c54;
+      margin-bottom: 24px;
+      padding-bottom: 12px;
+      border-bottom: 3px solid #7b68ee;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .icon { font-size: 1.5rem; }
+    .mermaid {
+      display: flex;
+      justify-content: center;
+      overflow-x: auto;
+    }
+    .mermaid svg {
+      max-width: 100%;
+      height: auto;
+    }
+  </style>
+</head>
+<body>
+
+<h1>🔗 이음(EUM) AI 파이프라인 아키텍처</h1>
+<p class="subtitle">5060 시니어 데이팅 앱 · AI 음성 분석 & 매칭 시스템</p>
+
+<!-- 1. 전체 시스템 아키텍처 -->
+<div class="section" id="diagram-1">
+  <h2><span class="icon">🏗️</span> 전체 시스템 아키텍처</h2>
+  <div class="mermaid">
+graph TB
+    subgraph CLIENT["📱 클라이언트 (NestJS Backend)"]
+        APP["앱 / API 게이트웨이"]
+    end
+
+    subgraph FASTAPI["⚡ FastAPI AI 서비스"]
+        direction TB
+        HEALTH["/health\n헬스체크"]
+        ONBOARD["/api/v1/onboarding\n음성 프로필 분석"]
+        RECOMMEND["/api/v1/recommendation\n매칭 추천"]
+        MATCHES["/api/v1/matches\n(Mock)"]
+    end
+
+    subgraph AI["🤖 OpenAI API"]
+        STT["gpt-4o-mini-transcribe\nSTT 음성→텍스트"]
+        EMBED["text-embedding-3-large\n1536차원 임베딩"]
+        KEYWORD["gpt-4o-mini\n키워드 추출"]
+        SUMMARY["gpt-4o-mini\n요약 생성"]
+    end
+
+    subgraph DB["🗄️ MySQL Database"]
+        USERS["User 테이블\n(vibeVector, 메타데이터)"]
+        UKW["user_keywords 테이블\n(키워드 점수)"]
+    end
+
+    APP -->|"POST 음성 파일 / 텍스트"| ONBOARD
+    APP -->|"GET userId"| RECOMMEND
+    APP --> HEALTH
+
+    ONBOARD --> STT
+    ONBOARD --> EMBED
+    ONBOARD --> KEYWORD
+    ONBOARD --> SUMMARY
+
+    RECOMMEND -->|"유저 벡터 조회"| USERS
+    ONBOARD -.->|"vibeVector 저장 (비활성)"| USERS
+    ONBOARD -.->|"키워드 저장 (비활성)"| UKW
+
+    style CLIENT fill:#e8f4fd,stroke:#2196F3,color:#1a1a2e
+    style FASTAPI fill:#f3e8ff,stroke:#9c27b0,color:#1a1a2e
+    style AI fill:#fff8e1,stroke:#ff9800,color:#1a1a2e
+    style DB fill:#e8f5e9,stroke:#4caf50,color:#1a1a2e
+  </div>
+</div>
+
+<!-- 2. 음성 프로필 분석 파이프라인 -->
+<div class="section" id="diagram-2">
+  <h2><span class="icon">🎙️</span> 음성 프로필 분석 파이프라인</h2>
+  <div class="mermaid">
+flowchart TD
+    START([" 사용자 요청 "])
+    INPUT{"입력 타입?"}
+    AUDIO["🎵 로컬 오디오 파일\n(local_audio_path)"]
+    TEXT["📝 직접 텍스트\n(transcript)"]
+    STT["🔊 STT 처리\ngpt-4o-mini-transcribe\n⚠️ 동기 처리"]
+    TRANSCRIPT["📄 트랜스크립트\n(텍스트)"]
+
+    subgraph PARALLEL["⚡ 병렬 처리 (asyncio.gather)"]
+        direction LR
+        subgraph EMB["임베딩 생성"]
+            E1["text-embedding-3-large"]
+            E2["1536차원 벡터"]
+            E3["L2 정규화"]
+            E1 --> E2 --> E3
+        end
+        subgraph KW["키워드 추출"]
+            K1["gpt-4o-mini\n(temp=0.1)"]
+            K2["380개 키워드 레지스트리\n필터링"]
+            K3["최대 15개 키워드\n+ 관련도 점수 (0~1)"]
+            K1 --> K2 --> K3
+        end
+    end
+
+    SUMM["📝 요약 생성\ngpt-4o-mini (temp=0.2)\n2문장 이내"]
+
+    RESPONSE["✅ 응답 반환\n• transcript\n• summary\n• vibeVector [1536차원]\n• matchedKeywords"]
+
+    SAVE[("💾 DB 저장\n현재 비활성화\nread-only mode")]
+
+    START --> INPUT
+    INPUT -->|"오디오"| AUDIO --> STT --> TRANSCRIPT
+    INPUT -->|"텍스트"| TEXT --> TRANSCRIPT
+    TRANSCRIPT --> PARALLEL
+    TRANSCRIPT --> SUMM
+    PARALLEL --> RESPONSE
+    SUMM --> RESPONSE
+    RESPONSE -.->|"(선택적)"| SAVE
+
+    style START fill:#7b68ee,color:white,stroke:none
+    style PARALLEL fill:#fff8e1,stroke:#ff9800
+    style EMB fill:#e3f2fd,stroke:#2196f3
+    style KW fill:#fce4ec,stroke:#e91e63
+    style SAVE fill:#e8f5e9,stroke:#4caf50,stroke-dasharray:5 5
+    style RESPONSE fill:#e8f5e9,stroke:#4caf50
+  </div>
+</div>
+
+<!-- 3. 키워드 추출 시스템 -->
+<div class="section" id="diagram-3">
+  <h2><span class="icon">🏷️</span> 키워드 레지스트리 구조 (380개)</h2>
+  <div class="mermaid">
+pie title 카테고리별 키워드 분포 (총 380개)
+    "성향·기질 (102개)" : 102
+    "가치관·태도 (81개)" : 81
+    "생활·일상 (73개)" : 73
+    "취미·관심사 (77개)" : 77
+    "소통·관계 (47개)" : 47
+  </div>
+</div>
+
+<!-- 4. 매칭 추천 엔진 -->
+<div class="section" id="diagram-4">
+  <h2><span class="icon">💞</span> 매칭 추천 엔진 알고리즘</h2>
+  <div class="mermaid">
+flowchart TD
+    REQ([" GET /recommendation/users?userId=X "])
+    LOAD["👤 요청자 정보 로드\n• vibeVector (JSON→float list)\n• sex (M/F)"]
+    NOTFOUND{{"유저 존재?\n벡터 있음?"}}
+    ERR["❌ 404 / 오류 반환"]
+
+    QUERY["🔍 후보군 쿼리\nSELECT * FROM User WHERE\n• status = ACTIVE\n• deletedAt IS NULL\n• id ≠ userId\n• sex ≠ requester.sex\n• vibeVector IS NOT NULL"]
+
+    subgraph SCORE["📊 유사도 스코어링"]
+        direction TB
+        S1["각 후보자에 대해 반복"]
+        S2["코사인 유사도 계산\nsimilarity = A·B / ‖A‖×‖B‖\n(L2 정규화된 벡터 → 내적만으로 계산)"]
+        S3{"score ≥ 0.3?"}
+        S4["✅ 후보 추가"]
+        S5["❌ 제외"]
+        S1 --> S2 --> S3
+        S3 -->|"Yes"| S4
+        S3 -->|"No"| S5
+    end
+
+    RANK["📈 점수 내림차순 정렬"]
+    TOP["🏆 상위 20명 선택"]
+    RESP["✅ 응답 반환\n• userId, nickname, age\n• profileImageUrl\n• introText\n• similarityScore"]
+
+    REQ --> LOAD
+    LOAD --> NOTFOUND
+    NOTFOUND -->|"No"| ERR
+    NOTFOUND -->|"Yes"| QUERY
+    QUERY --> SCORE
+    SCORE --> RANK
+    RANK --> TOP
+    TOP --> RESP
+
+    style REQ fill:#7b68ee,color:white,stroke:none
+    style SCORE fill:#fff3e0,stroke:#ff9800
+    style ERR fill:#ffebee,stroke:#f44336
+    style RESP fill:#e8f5e9,stroke:#4caf50
+  </div>
+</div>
+
+<!-- 5. 데이터 모델 -->
+<div class="section" id="diagram-5">
+  <h2><span class="icon">🗃️</span> 데이터 모델 (ERD)</h2>
+  <div class="mermaid">
+erDiagram
+    User {
+        BigInt id PK
+        String email
+        String nickname
+        String code
+        DateTime birthdate
+        Int age
+        Enum sex
+        String introText
+        String introVoiceUrl
+        String idealVoiceUrl
+        String profileImageUrl
+        JSON vibeVector
+        Enum status
+        Enum provider
+        String providerUserId
+        DateTime createdAt
+        DateTime updatedAt
+        DateTime deletedAt
+    }
+    user_keywords {
+        BigInt id PK
+        BigInt userId FK
+        String vectorId
+        Int keywordId
+        String keyword
+        String category
+        Float score
+    }
+    User ||--o{ user_keywords : "has"
+  </div>
+</div>
+
+<!-- 6. 서비스 레이어 구조 -->
+<div class="section" id="diagram-6">
+  <h2><span class="icon">⚙️</span> 서비스 레이어 의존성 구조</h2>
+  <div class="mermaid">
+graph LR
+    subgraph ROUTES["API Routes"]
+        R1["onboarding.py"]
+        R2["recommendation.py"]
+        R3["health.py"]
+    end
+
+    subgraph SERVICES["Services"]
+        LLM["llm.py\nLLM 서비스\n• analyze_voice_profile\n• summarize_transcript\n• generate_embedding\n• extract_keywords"]
+        STT["stt.py\nSTT 서비스\n• transcribe_local_audio"]
+        KW["keywords.py\n키워드 레지스트리\n• 380개 키워드\n• KEYWORD_SYSTEM_PROMPT"]
+        VIBE["vibe.py\n벡터 수학\n• normalize_vector\n• score_similarity"]
+        STOR["storage.py\n영속성\n• save_vibe_vector\n• save_user_keywords\n• check_mysql_health"]
+    end
+
+    subgraph EXTERNAL["External"]
+        OAI["OpenAI API"]
+        DB["MySQL DB"]
+    end
+
+    R1 --> LLM
+    R1 --> STT
+    R2 --> VIBE
+    R3 --> STOR
+
+    LLM --> KW
+    LLM --> VIBE
+    LLM --> OAI
+    STT --> OAI
+    STOR --> DB
+
+    style ROUTES fill:#e8f4fd,stroke:#2196F3
+    style SERVICES fill:#f3e8ff,stroke:#9c27b0
+    style EXTERNAL fill:#fff8e1,stroke:#ff9800
+  </div>
+</div>
+
+<!-- 7. 벡터 임베딩 매칭 원리 -->
+<div class="section" id="diagram-7">
+  <h2><span class="icon">🧮</span> 벡터 임베딩 매칭 원리</h2>
+  <div class="mermaid">
+graph TB
+    subgraph USER_A["👩 사용자 A (여성)"]
+        VA["vibeVector A\n[0.025, -0.014, 0.067, ...]\n1536차원"]
+    end
+
+    subgraph USER_B["👨 사용자 B (남성)"]
+        VB["vibeVector B\n[0.031, -0.018, 0.059, ...]\n1536차원"]
+    end
+
+    subgraph MATH["📐 코사인 유사도 계산"]
+        DOT["내적 계산\nA · B = Σ(aᵢ × bᵢ)"]
+        NORM["벡터 크기 계산\n‖A‖ × ‖B‖"]
+        COS["유사도 = A·B / ‖A‖×‖B‖\n범위: 0.0 ~ 1.0"]
+        DOT --> COS
+        NORM --> COS
+    end
+
+    THRESH{"score ≥ 0.3?"}
+    MATCH["✅ 추천 후보에 포함\n(상위 20명 반환)"]
+    SKIP["❌ 제외"]
+
+    VA --> DOT
+    VB --> DOT
+    VA --> NORM
+    VB --> NORM
+    COS --> THRESH
+    THRESH -->|"Yes"| MATCH
+    THRESH -->|"No"| SKIP
+
+    style USER_A fill:#fce4ec,stroke:#e91e63
+    style USER_B fill:#e3f2fd,stroke:#2196f3
+    style MATH fill:#fff8e1,stroke:#ff9800
+    style MATCH fill:#e8f5e9,stroke:#4caf50
+    style SKIP fill:#ffebee,stroke:#f44336
+  </div>
+</div>
+
+<!-- 8. 개발 마일스톤 -->
+<div class="section" id="diagram-8">
+  <h2><span class="icon">📅</span> 개발 마일스톤 (6단계)</h2>
+  <div class="mermaid">
+gantt
+    title 이음 AI 파이프라인 개발 일정
+    dateFormat  YYYY-MM-DD
+    section Phase 0
+    계약 정의 (응답 포맷·에러코드·인증)        :done, p0, 2026-01-01, 7d
+    section Phase 1
+    AI 파이프라인 프로토타입 (STT+LLM)          :done, p1, 2026-01-08, 7d
+    section Phase 2
+    데이터·스토리지 (스키마·인덱스)              :done, p2, 2026-01-08, 14d
+    section Phase 3
+    서비스 통합 (NestJS↔FastAPI)               :done, p3, 2026-01-15, 14d
+    section Phase 4
+    매칭 엔진 (유사도·페이지네이션·A/B)         :active, p4, 2026-01-22, 7d
+    section Phase 5
+    품질·관측성 (로깅·트레이싱·레이트리밋)      :p5, 2026-01-22, 14d
+    section Phase 6
+    강화·런칭 (부하테스트·벡터백필·런북)         :p6, 2026-01-29, 7d
+  </div>
+</div>
+
+<script>
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'base',
+    themeVariables: {
+      primaryColor: '#7b68ee',
+      primaryTextColor: '#1a1a2e',
+      primaryBorderColor: '#5a4fcf',
+      lineColor: '#6c6c8a',
+      secondaryColor: '#f3e8ff',
+      tertiaryColor: '#e8f4fd',
+      background: '#ffffff',
+      mainBkg: '#ffffff',
+      nodeBorder: '#9c27b0',
+      clusterBkg: '#f9f9ff',
+      titleColor: '#2c2c54',
+      edgeLabelBackground: '#ffffff',
+      fontFamily: 'Noto Sans KR, Segoe UI, sans-serif',
+    },
+    flowchart: { htmlLabels: true, curve: 'basis' },
+    er: { diagramPadding: 20 },
+    gantt: { axisFormat: '%m/%d' },
+  });
+</script>
+</body>
+</html>
