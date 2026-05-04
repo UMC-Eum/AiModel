@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from sqlalchemy import text
 
 from app import database
-from app.api.v1 import health, matches, onboarding, recommendation
+from app.api.v1 import club, health, matches, onboarding, recommendation
 
 app = FastAPI(title="AI Voice Service", version="0.1.0")
 
@@ -12,6 +12,7 @@ app.include_router(health.router, prefix="/api")
 app.include_router(onboarding.router, prefix="/api")
 app.include_router(matches.router, prefix="/api")
 app.include_router(recommendation.router, prefix="/api")
+app.include_router(club.router, prefix="/api")
 
 logger = logging.getLogger(__name__)
 
