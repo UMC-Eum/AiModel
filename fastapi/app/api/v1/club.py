@@ -13,7 +13,8 @@ router = APIRouter(tags=["club"])
 
 
 class AnalyzeClubVibeRequest(BaseModel):
-    clubId: int
+    clubId: Optional[int] = None
+    club_id: Optional[int] = None
     transcript: Optional[str] = None
     local_audio_path: Optional[str] = None
     analysis_type: Optional[str] = "profile"
@@ -41,6 +42,18 @@ async def recommend_clubs(userId: int = Query(..., description="추천 기준 �
 @router.post("/v1/onboarding/club-vibe/analyze")
 async def analyze_club_vibe(payload: AnalyzeClubVibeRequest) -> Dict[str, Any]:
     now = datetime.utcnow().isoformat() + "Z"
+    club_id = payload.clubId if payload.clubId is not None else payload.club_id
+
+    if club_id is None:
+        return {
+            "resultType": "FAIL",
+            "error": {"message": "clubId(또는 club_id)가 필요합니다."},
+            "success": None,
+            "meta": {
+                "timestamp": now,
+                "path": "/api/v1/onboarding/club-vibe/analyze",
+            },
+        }
 
     transcript_text = payload.transcript
 
@@ -63,7 +76,7 @@ async def analyze_club_vibe(payload: AnalyzeClubVibeRequest) -> Dict[str, Any]:
         summary = await summarize_transcript(transcript_text)
         vector_id, matched_keywords, vibe_vector = await analyze_voice_profile(
             transcript_text,
-            payload.clubId,
+            club_id,
         )
     except Exception as exc:
         return {
@@ -84,7 +97,7 @@ async def analyze_club_vibe(payload: AnalyzeClubVibeRequest) -> Dict[str, Any]:
         "resultType": "SUCCESS",
         "success": {
             "data": {
-                "clubId": payload.clubId,
+                "clubId": club_id,
                 "transcript": transcript_text,
                 "summary": summary,
                 "vectorId": vector_id,
