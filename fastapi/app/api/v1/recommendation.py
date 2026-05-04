@@ -5,11 +5,12 @@ import logging
 from typing import List
 
 import numpy as np
-from fastapi import APIRouter, Depends, Query
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.exceptions import AppException
+from app.core.response import success_response
 from app.database import get_db
 from app.models.user import User, UserStatus
 
@@ -47,23 +48,23 @@ def _to_vector(raw) -> List[float] | None:
         return None
 
 
-def _fail(status_code: int, message: str) -> JSONResponse:
-    return JSONResponse(status_code=status_code, content={"resultType": "FAIL", "error": {"message": message}})
-
-
 @router.get("/v1/recommendation/users")
-async def recommend_users(userId: int = Query(..., description="NestJS가 전달한 사용자 ID"), db: AsyncSession = Depends(get_db)):
+async def recommend_users(
+    request: Request,
+    userId: int = Query(..., description="NestJS가 전달한 사용자 ID"),
+    db: AsyncSession = Depends(get_db),
+):
     # 1) 요청 유저 조회
     try:
         requester_row = await db.execute(select(User).where(User.id == userId))
         requester = requester_row.scalar_one_or_none()
-    except Exception as exc:  # DB 오류를 500으로 보고
+    except Exception as exc:
         logger.exception("requester fetch failed", extra={"userId": userId})
-        return _fail(500, f"DB 조회 실패: {exc}")
+        raise AppException(code="RECOMMENDATION-001", message=f"DB 조회 실패: {exc}", status_code=500) from exc
 
     if requester is None:
         logger.warning("requester not found", extra={"userId": userId})
-        return _fail(404, "userId가 존재하지 않습니다.")
+        raise AppException(code="RECOMMENDATION-002", message="userId가 존재하지 않습니다.", status_code=404)
 
     requester_vector = _to_vector(requester.vibeVector)
     if not requester_vector:
@@ -71,7 +72,7 @@ async def recommend_users(userId: int = Query(..., description="NestJS가 전달
             "requester vector missing",
             extra={"userId": userId, "sex": requester.sex, "status": requester.status.name},
         )
-        return _fail(400, "요청 유저의 vibeVector가 없습니다.")
+        raise AppException(code="RECOMMENDATION-003", message="요청 유저의 vibeVector가 없습니다.", status_code=400)
 
     requester_sex = requester.sex
     logger.info(
@@ -97,7 +98,7 @@ async def recommend_users(userId: int = Query(..., description="NestJS가 전달
         candidates = candidates_row.scalars().all()
     except Exception as exc:
         logger.exception("candidate fetch failed", extra={"userId": userId})
-        return _fail(500, f"후보군 조회 실패: {exc}")
+        raise AppException(code="RECOMMENDATION-004", message=f"후보군 조회 실패: {exc}", status_code=500) from exc
 
     logger.info(
         "candidates fetched",
@@ -137,4 +138,4 @@ async def recommend_users(userId: int = Query(..., description="NestJS가 전달
     scored.sort(key=lambda x: x["similarityScore"], reverse=True)
     top_n = scored[:MAX_RESULTS]
 
-    return {"resultType": "SUCCESS", "success": {"data": top_n}, "error": None}
+    return success_response(request, top_n)
