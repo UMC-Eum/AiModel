@@ -13,6 +13,7 @@ idna==3.11
 jiter==0.13.0
 openai==2.29.0
 aiomysql==0.2.0
+cryptography==43.0.1
 SQLAlchemy==2.0.36
 pydantic==2.12.5
 pydantic-settings==2.11.0
