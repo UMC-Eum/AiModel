@@ -21,7 +21,6 @@ router = APIRouter(tags=["recommendation"])
 logger = logging.getLogger(__name__)
 
 SIMILARITY_THRESHOLD = 0.3
-MAX_RESULTS = 20
 DEFAULT_PAGE_SIZE = 20
 MAX_PAGE_SIZE = 50
 
@@ -171,18 +170,6 @@ async def _build_scored_recommendations(user_id: int, db: AsyncSession) -> List[
 
     scored.sort(key=lambda x: (-x["similarityScore"], x["userId"]))
     return scored
-
-
-@router.get("/v1/recommendation/users")
-async def recommend_users(
-    request: Request,
-    userId: int = Query(..., description="NestJS가 전달한 사용자 ID"),
-    db: AsyncSession = Depends(get_db),
-):
-    scored = await _build_scored_recommendations(userId, db)
-    top_n = scored[:MAX_RESULTS]
-
-    return success_response(request, top_n)
 
 
 @router.get("/v1/onboarding/matches/recommend")

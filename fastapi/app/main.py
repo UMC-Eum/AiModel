@@ -4,7 +4,7 @@ from fastapi import FastAPI, Request
 from sqlalchemy import text
 
 from app import database
-from app.api.v1 import club, health, matches, onboarding, recommendation
+from app.api.v1 import club, health, onboarding, recommendation
 from app.core.exceptions import register_exception_handlers
 from app.core.response import success_response
 
@@ -13,7 +13,6 @@ register_exception_handlers(app)
 
 app.include_router(health.router, prefix="/api")
 app.include_router(onboarding.router, prefix="/api")
-app.include_router(matches.router, prefix="/api")
 app.include_router(recommendation.router, prefix="/api")
 app.include_router(club.router, prefix="/api")
 
