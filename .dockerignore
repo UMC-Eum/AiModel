@@ -1,0 +1,14 @@
+.git
+.github
+.claude
+.vscode
+.venv
+fastapi/.venv
+__pycache__
+*.pyc
+*.pyo
+.DS_Store
+.env
+.env.*
+docs
+*.md
