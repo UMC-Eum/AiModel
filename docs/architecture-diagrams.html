@@ -78,7 +78,6 @@ graph TB
         HEALTH["/health\n헬스체크"]
         ONBOARD["/api/v1/onboarding\n음성 프로필 분석"]
         RECOMMEND["/api/v1/recommendation\n매칭 추천"]
-        MATCHES["/api/v1/matches\n(Mock)"]
     end
 
     subgraph AI["🤖 OpenAI API"]
@@ -183,7 +182,7 @@ pie title 카테고리별 키워드 분포 (총 380개)
   <h2><span class="icon">💞</span> 매칭 추천 엔진 알고리즘</h2>
   <div class="mermaid">
 flowchart TD
-    REQ([" GET /recommendation/users?userId=X "])
+    REQ([" GET /onboarding/matches/recommend?userId=X "])
     LOAD["👤 요청자 정보 로드\n• vibeVector (JSON→float list)\n• sex (M/F)"]
     NOTFOUND{{"유저 존재?\n벡터 있음?"}}
     ERR["❌ 404 / 오류 반환"]

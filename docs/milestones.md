@@ -2,7 +2,7 @@
 
 ## Phase 0: 범위·계약 정리 (Week 0)
 - 기존 NestJS 백엔드와 FastAPI 간 응답 envelope, 에러 코드, 인증/서명 방식을 확정.
-- `v1/onboarding/voice-profile/analyze`, `v1/matches/recommendations` 요청/응답 스키마와 페이지네이션 규칙 고정.
+- `v1/onboarding/voice-profile/analyze`, `v1/onboarding/matches/recommend` 요청/응답 스키마와 페이지네이션 규칙 고정.
 - STT 제공자(AWS Transcribe/Bedrock 등)와 오디오 제약(포맷, 길이, 샘플레이트) 확정.
 
 ## Phase 1: AI 파이프라인 프로토타입 (Week 1)
