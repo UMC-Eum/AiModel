@@ -23,6 +23,9 @@ MAX_RESULTS = 20
 
 
 def _cosine_similarity(vec_a: List[float], vec_b: List[float]) -> float:
+
+    if len(vec_a) != len(vec_b):
+        raise ValueError(f"vector length mismatch: {len(vec_a)} != {len(vec_b)}")
     a = np.array(vec_a, dtype=float)
     b = np.array(vec_b, dtype=float)
     denom = float(np.linalg.norm(a) * np.linalg.norm(b))
@@ -107,10 +110,22 @@ async def recommend_users(
 
     # 3) 유사도 계산 및 정렬
     scored = []
+    requester_dim = len(requester_vector)
     for candidate in candidates:
         candidate_vec = _to_vector(candidate.vibeVector)
         if not candidate_vec:
             logger.debug("skip candidate without vector", extra={"candidateId": candidate.id})
+            continue
+        if len(candidate_vec) != requester_dim:
+            logger.warning(
+                "skip candidate with mismatched vector dimension",
+                extra={
+                    "candidateId": candidate.id,
+                    "requesterId": userId,
+                    "requester_dim": requester_dim,
+                    "candidate_dim": len(candidate_vec),
+                },
+            )
             continue
         score = _cosine_similarity(requester_vector, candidate_vec)
         if score < SIMILARITY_THRESHOLD:

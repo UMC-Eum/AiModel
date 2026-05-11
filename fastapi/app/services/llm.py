@@ -79,10 +79,14 @@ async def summarize_transcript(transcript: str) -> str:
 
 
 async def _generate_semantic_embedding(transcript: str) -> List[float]:
-    """text-embedding-3-large로 1536차원 임베딩을 생성한다."""
+    """text-embedding-3-large로 3072차원 임베딩을 생성한다."""
     client = _client()
     try:
-        resp = await client.embeddings.create(model="text-embedding-3-large", input=transcript)
+        resp = await client.embeddings.create(
+            model="text-embedding-3-large",
+            input=transcript,
+            dimensions=3072,
+        )
     except OpenAIError as exc:
         raise RuntimeError(f"임베딩 생성 실패: {exc}") from exc
 
