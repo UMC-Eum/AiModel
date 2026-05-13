@@ -155,7 +155,7 @@
 
 ## 4. 매칭 추천 엔진
 
-**엔드포인트:** `GET /api/v1/recommendation/users?userId=<id>`
+**엔드포인트:** `GET /api/v1/onboarding/matches/recommend?userId=<id>&cursor=<cursor>&size=<size>`
 
 ### 알고리즘 흐름
 
@@ -319,8 +319,7 @@ fastapi/app/
 ├── api/v1/
 │   ├── health.py        ← GET /health, GET /api/v1/health/db
 │   ├── onboarding.py    ← POST /api/v1/onboarding/voice-profile/analyze
-│   ├── recommendation.py← GET /api/v1/recommendation/users
-│   └── matches.py       ← GET /api/v1/matches/recommendations (Mock)
+│   └── recommendation.py← GET /api/v1/onboarding/matches/recommend
 └── services/
     ├── llm.py           ← OpenAI 통합 (임베딩, 키워드, 요약)
     ├── stt.py           ← STT 트랜스크립션
@@ -357,8 +356,7 @@ health.py
 | GET | `/health` | 기본 헬스체크 | ✅ 운영중 |
 | GET | `/api/v1/health/db` | MySQL 연결 확인 | ✅ 운영중 |
 | POST | `/api/v1/onboarding/voice-profile/analyze` | 음성→임베딩+키워드+요약 | ✅ 운영중 |
-| GET | `/api/v1/recommendation/users?userId=` | 코사인 유사도 기반 추천 | ✅ 운영중 |
-| GET | `/api/v1/matches/recommendations` | Mock 추천 (스텁) | ⚙️ 개발중 |
+| GET | `/api/v1/onboarding/matches/recommend?userId=&cursor=&size=` | 코사인 유사도 기반 추천(커서 페이지네이션) | ✅ 운영중 |
 
 ---
 

@@ -11,7 +11,7 @@
 - fastapi/ — AI 서비스 스캐폴드.
 	- app/main.py — FastAPI 앱 및 라우터 등록.
 	- app/api/v1/onboarding.py — 온보딩 분석 엔드포인트 스텁.
-	- app/api/v1/matches.py — 추천 엔드포인트 스텁.
+	- app/api/v1/recommendation.py — 커서 페이지네이션 기반 추천 엔드포인트.
 	- app/services/* — STT, LLM, 키워드, 벡터 헬퍼 스텁.
 	- app/core/config.py — 설정 플레이스홀더.
 
