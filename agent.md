@@ -8,11 +8,11 @@
 - 이 저장소의 핵심은 **NestJS 백엔드가 호출하는 FastAPI 기반 AI 서비스**입니다.
 - 현재 주요 역할:
   1. 온보딩 음성/텍스트 분석 (`POST /api/v1/onboarding/voice-profile/analyze`)
-  2. 유사도 기반 사용자 추천 (`GET /api/v1/recommendation/users?userId=...`)
+  2. 유사도 기반 사용자 추천 (`GET /api/v1/onboarding/matches/recommend?userId=...`)
 - AI 파이프라인은 OpenAI를 사용합니다.
   - STT: `gpt-4o-mini-transcribe`
   - 요약/키워드: `gpt-4o-mini`
-  - 임베딩: `text-embedding-3-large` (1536d, L2 정규화)
+  - 임베딩: `text-embedding-3-large` (3072d, L2 정규화)
 - DB는 비동기 MySQL(SQLAlchemy + aiomysql)이며, `User` 모델은 NestJS 스키마와의 정합성을 우선합니다.
 - 현재 온보딩 분석 파이프라인은 **read-only 모드**로 동작하며 DB 저장 호출은 비활성화되어 있습니다.
 
