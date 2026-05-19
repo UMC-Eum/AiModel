@@ -20,3 +20,7 @@
 2. FastAPI에서 STT+LLM 플로우 구현 및 응답 계약 고정.
 3. 기존 NestJS 백엔드와의 연동 방식 확정(요청 서명/인증, 타임아웃, 재시도) 후 호출 어댑터 제공.
 4. 테스트, 로깅/트레이싱, 보안(레이트 리밋/서명 검증)을 추가해 안정화.
+
+## DB
+- FastAPI 서비스는 PostgreSQL async 연결을 사용합니다.
+- `.env`에는 `DATABASE_URL=postgresql+asyncpg://user:password@host:5432/dbname` 형식으로 설정합니다.

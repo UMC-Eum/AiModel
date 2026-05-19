@@ -13,7 +13,7 @@
   - STT: `gpt-4o-mini-transcribe`
   - 요약/키워드: `gpt-4o-mini`
   - 임베딩: `text-embedding-3-large` (3072d, L2 정규화)
-- DB는 비동기 MySQL(SQLAlchemy + aiomysql)이며, `User` 모델은 NestJS 스키마와의 정합성을 우선합니다.
+- DB는 비동기 PostgreSQL(SQLAlchemy + asyncpg)이며, `User` 모델은 NestJS 스키마와의 정합성을 우선합니다.
 - 현재 온보딩 분석 파이프라인은 **read-only 모드**로 동작하며 DB 저장 호출은 비활성화되어 있습니다.
 
 ## 2) 작업 원칙 (CLAUDE.md 확장)
@@ -70,7 +70,7 @@ uvicorn app.main:app --reload
 
 - API 문서: `http://localhost:8000/docs`
 - 필수 환경 변수: `OPENAI_API_KEY`
-- DB 연결: `DATABASE_URL` 우선, 없으면 설정의 `mysql_dsn` 사용
+- DB 연결: `DATABASE_URL` 우선, 없으면 설정의 `postgres_dsn` 사용
 
 ## 6) 금지/주의 사항
 
