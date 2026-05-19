@@ -1,0 +1,34 @@
+name: Branch Naming Convention
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize]
+
+jobs:
+  check:
+    name: Validate branch name
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check branch name format
+        env:
+          BRANCH: ${{ github.head_ref }}
+        run: |
+          # Allowed: (feat|fix|chore|refactor|docs|test|style|perf)/EUM-<digits>
+          # 뒤에 부가 설명은 선택 (-anything) — 보통 EUM-N만 적음
+          if echo "$BRANCH" | grep -qE '^(feat|fix|chore|refactor|docs|test|style|perf)/EUM-[0-9]+(-.*)?$'; then
+            echo "✅ Branch name OK: $BRANCH"
+            exit 0
+          fi
+          echo "::error::브랜치명이 컨벤션에 맞지 않습니다: $BRANCH"
+          echo ""
+          echo "올바른 형식: <type>/EUM-<번호>"
+          echo ""
+          echo "예시:"
+          echo "  feat/EUM-12"
+          echo "  fix/EUM-34"
+          echo "  chore/EUM-56"
+          echo ""
+          echo "허용되는 type: feat, fix, chore, refactor, docs, test, style, perf"
+          echo "EUM-N은 노션 보드에서 발급받은 티켓 번호를 사용하세요."
+          echo "티켓 번호만으로 충분하므로 뒤에 설명은 필요 없습니다 (적고 싶으면 -설명 추가 가능)."
+          exit 1
