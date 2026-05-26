@@ -2,12 +2,15 @@ name: Sync to Notion
 
 on:
   issues:
-    types: [opened, closed, reopened, assigned]
+    types: [opened, closed, reopened]
   pull_request:
-    types: [opened, ready_for_review, review_requested, closed, reopened]
+    types: [opened, ready_for_review, closed, reopened]
+  push:
+    branches:
+      - '**'
 
 concurrency:
-  group: notion-sync-${{ github.event.issue.number || github.event.pull_request.number }}
+  group: notion-sync-${{ github.event.issue.number || github.event.pull_request.number || github.ref_name }}
   cancel-in-progress: false
 
 jobs:
@@ -39,14 +42,7 @@ jobs:
             -H "Authorization: Bearer $NOTION_TOKEN" \
             -H "Notion-Version: $NOTION_VERSION" \
             -H "Content-Type: application/json" \
-            -d "{
-              \"filter\": {
-                \"and\": [
-                  {\"property\": \"GitHub Number\", \"number\": {\"equals\": $ISSUE_NUM}},
-                  {\"property\": \"Type\", \"select\": {\"equals\": \"Issue\"}}
-                ]
-              }
-            }")
+            -d "{\"filter\": {\"property\": \"GitHub Number\", \"number\": {\"equals\": $ISSUE_NUM}}}")
           PAGE_ID=$(echo "$RESP" | jq -r '.results[0].id // empty')
           echo "page_id=$PAGE_ID" >> "$GITHUB_OUTPUT"
           echo "Found existing page: ${PAGE_ID:-none}"
@@ -58,20 +54,29 @@ jobs:
           # Strip [EUM-N] prefix if already present (re-runs)
           CLEAN_TITLE=$(echo "$ISSUE_TITLE" | sed -E 's/^\[EUM-[0-9]+\] *//')
 
+          # GitHub 레포명 → Notion 보드 Repository select 옵션 매핑.
+          # 보드 옵션이 소문자/약칭으로 통일되어 있어 명시적으로 매핑한다.
+          # 새 레포 추가 시 이 case 문에 한 줄 추가.
+          case "$REPO_NAME" in
+            Backend)  REPO_TAG="backend" ;;
+            Frontend) REPO_TAG="frontend" ;;
+            AiModel)  REPO_TAG="ai" ;;
+            *)        REPO_TAG=$(echo "$REPO_NAME" | tr '[:upper:]' '[:lower:]') ;;
+          esac
+
           BODY=$(jq -nc \
             --arg db "$NOTION_DB_ID" \
             --arg title "$CLEAN_TITLE" \
             --arg url "$ISSUE_URL" \
             --argjson num "$ISSUE_NUM" \
-            --arg repo "$REPO_NAME" \
+            --arg repo "$REPO_TAG" \
             '{
               parent: {database_id: $db},
               properties: {
                 "이름": {title: [{text: {content: $title}}]},
                 "GitHub URL": {url: $url},
                 "GitHub Number": {number: $num},
-                "Repository": {select: {name: $repo}},
-                "Type": {select: {name: "Issue"}}
+                "Repository": {select: {name: $repo}}
               }
             }')
 
@@ -88,9 +93,9 @@ jobs:
             exit 1
           fi
 
-          # Extract auto-issued EUM-N from ID property (unique_id)
-          EUM_NUM=$(echo "$RESP" | jq -r '.properties.ID.unique_id.number // empty')
-          EUM_PREFIX=$(echo "$RESP" | jq -r '.properties.ID.unique_id.prefix // "EUM"')
+          # Extract auto-issued EUM-N from 작업티켓 property (unique_id)
+          EUM_NUM=$(echo "$RESP" | jq -r '.properties["작업티켓"].unique_id.number // empty')
+          EUM_PREFIX=$(echo "$RESP" | jq -r '.properties["작업티켓"].unique_id.prefix // "EUM"')
           if [ -z "$EUM_NUM" ]; then
             echo "::warning::Could not extract EUM ticket number from new page"
             exit 0
@@ -148,22 +153,17 @@ jobs:
       NOTION_DB_ID: ${{ secrets.NOTION_DB_ID }}
       NOTION_VERSION: "2022-06-28"
       PR_BRANCH: ${{ github.head_ref }}
-      PR_TITLE: ${{ github.event.pull_request.title }}
-      PR_BODY: ${{ github.event.pull_request.body }}
       PR_URL: ${{ github.event.pull_request.html_url }}
       PR_ACTION: ${{ github.event.action }}
       PR_MERGED: ${{ github.event.pull_request.merged }}
 
     steps:
-      - name: Extract EUM ticket number from branch/title
+      - name: Extract EUM ticket from branch name
         id: extract
         run: |
-          # Search branch name first, then PR title, then body
-          SEARCH_TEXT="$PR_BRANCH $PR_TITLE $PR_BODY"
-          TICKET=$(echo "$SEARCH_TEXT" | grep -oE 'EUM-[0-9]+' | head -1)
+          TICKET=$(echo "$PR_BRANCH" | grep -oE 'EUM-[0-9]+' | head -1)
           if [ -z "$TICKET" ]; then
-            echo "::warning::No EUM-N ticket found in branch/title/body. Skipping Notion sync."
-            echo "Searched in: $SEARCH_TEXT"
+            echo "::warning::No EUM-N in branch '$PR_BRANCH'. Skipping Notion sync."
             exit 0
           fi
           NUM=$(echo "$TICKET" | grep -oE '[0-9]+')
@@ -178,10 +178,8 @@ jobs:
           STATUS=""
           if [ "$PR_ACTION" = "closed" ] && [ "$PR_MERGED" = "true" ]; then
             STATUS="완료"
-          elif [ "$PR_ACTION" = "review_requested" ] || [ "$PR_ACTION" = "ready_for_review" ]; then
+          elif [ "$PR_ACTION" = "opened" ] || [ "$PR_ACTION" = "reopened" ] || [ "$PR_ACTION" = "ready_for_review" ]; then
             STATUS="리뷰 중"
-          elif [ "$PR_ACTION" = "opened" ] || [ "$PR_ACTION" = "reopened" ]; then
-            STATUS="진행 중"
           fi
           if [ -z "$STATUS" ]; then
             echo "No status mapping for action=$PR_ACTION (merged=$PR_MERGED). Skipping."
@@ -200,7 +198,7 @@ jobs:
             -H "Authorization: Bearer $NOTION_TOKEN" \
             -H "Notion-Version: $NOTION_VERSION" \
             -H "Content-Type: application/json" \
-            -d "{\"filter\":{\"property\":\"ID\",\"unique_id\":{\"equals\":$NUM}}}")
+            -d "{\"filter\":{\"property\":\"작업티켓\",\"unique_id\":{\"equals\":$NUM}}}")
           PAGE_ID=$(echo "$RESP" | jq -r '.results[0].id // empty')
           if [ -z "$PAGE_ID" ]; then
             echo "::warning::No Notion page found for ${{ steps.extract.outputs.ticket }}"
@@ -228,3 +226,61 @@ jobs:
             -H "Content-Type: application/json" \
             -d "$BODY"
           echo "Updated $PAGE_ID → 상태: $STATUS"
+
+  sync-push:
+    name: Sync Push → Notion
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    env:
+      NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+      NOTION_DB_ID: ${{ secrets.NOTION_DB_ID }}
+      NOTION_VERSION: "2022-06-28"
+      REF_NAME: ${{ github.ref_name }}
+
+    steps:
+      - name: Extract EUM ticket from branch name
+        id: extract
+        run: |
+          TICKET=$(echo "$REF_NAME" | grep -oE 'EUM-[0-9]+' | head -1)
+          if [ -z "$TICKET" ]; then
+            echo "No EUM-N in branch '$REF_NAME'. Skipping."
+            exit 0
+          fi
+          NUM=$(echo "$TICKET" | grep -oE '[0-9]+')
+          echo "ticket=$TICKET" >> "$GITHUB_OUTPUT"
+          echo "num=$NUM" >> "$GITHUB_OUTPUT"
+          echo "Matched ticket: $TICKET"
+
+      - name: Find Notion page + current status
+        id: find
+        if: steps.extract.outputs.ticket != ''
+        env:
+          NUM: ${{ steps.extract.outputs.num }}
+        run: |
+          RESP=$(curl -s -X POST \
+            "https://api.notion.com/v1/databases/$NOTION_DB_ID/query" \
+            -H "Authorization: Bearer $NOTION_TOKEN" \
+            -H "Notion-Version: $NOTION_VERSION" \
+            -H "Content-Type: application/json" \
+            -d "{\"filter\":{\"property\":\"작업티켓\",\"unique_id\":{\"equals\":$NUM}}}")
+          PAGE_ID=$(echo "$RESP" | jq -r '.results[0].id // empty')
+          CUR=$(echo "$RESP" | jq -r '.results[0].properties["상태"].status.name // empty')
+          if [ -z "$PAGE_ID" ]; then
+            echo "::warning::No Notion page found for ${{ steps.extract.outputs.ticket }}"
+            exit 0
+          fi
+          echo "page_id=$PAGE_ID" >> "$GITHUB_OUTPUT"
+          echo "current=$CUR" >> "$GITHUB_OUTPUT"
+          echo "Current status: ${CUR:-<none>}"
+
+      - name: Promote to 진행 중 (only if current is 이슈)
+        if: steps.find.outputs.page_id != '' && steps.find.outputs.current == '이슈'
+        env:
+          PAGE_ID: ${{ steps.find.outputs.page_id }}
+        run: |
+          curl -s -X PATCH "https://api.notion.com/v1/pages/$PAGE_ID" \
+            -H "Authorization: Bearer $NOTION_TOKEN" \
+            -H "Notion-Version: $NOTION_VERSION" \
+            -H "Content-Type: application/json" \
+            -d '{"properties":{"상태":{"status":{"name":"진행 중"}}}}'
+          echo "Promoted $PAGE_ID → 진행 중"
