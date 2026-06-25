@@ -15,8 +15,12 @@ def _normalize_postgres_url(url: str) -> str:
     return url
 
 
-# DATABASE_URL 우선, 없으면 postgres_dsn을 fallback으로 사용
-DATABASE_URL = _normalize_postgres_url(os.getenv("DATABASE_URL") or get_settings().postgres_dsn)
+settings = get_settings()
+
+# OS 환경변수 DATABASE_URL 우선, 없으면 .env의 DATABASE_URL/postgres_dsn을 fallback으로 사용
+DATABASE_URL = _normalize_postgres_url(
+    os.getenv("DATABASE_URL") or settings.database_url or settings.postgres_dsn
+)
 
 if not DATABASE_URL:
     raise RuntimeError("DATABASE_URL 또는 postgres_dsn 환경변수가 설정되어야 합니다.")

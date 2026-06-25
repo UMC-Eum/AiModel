@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     stt_bucket: str = Field(default="")
     llm_endpoint: str = Field(default="")
     openai_api_key: str = Field(default="")
+    database_url: str = Field(default="")  # 예: postgresql+asyncpg://user:pass@host:5432/dbname
     postgres_api_endpoint: str = Field(default="")  # (옵션) HTTP 프록시 엔드포인트
     postgres_dsn: str = Field(default="")  # 예: postgresql+asyncpg://user:pass@host:5432/dbname
 

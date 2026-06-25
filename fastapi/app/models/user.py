@@ -27,7 +27,7 @@ class User(Base):
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     birthdate = Column(DateTime(timezone=False), nullable=False)
     email = Column(String(255), nullable=False)
-    sex = Column(Enum(SexEnum), nullable=False, default=SexEnum.M, server_default=SexEnum.M.value)
+    sex = Column(Enum(SexEnum, name="Sex"), nullable=False, default=SexEnum.M, server_default=SexEnum.M.value)
     createdAt = Column(DateTime(timezone=False), nullable=False, server_default=func.now())
     nickname = Column(String(20), nullable=False)
     updatedAt = Column(DateTime(timezone=False), nullable=False, server_default=func.now(), onupdate=func.now())
@@ -36,10 +36,15 @@ class User(Base):
     introVoiceUrl = Column(String(512), nullable=False)
     introText = Column(String(255), nullable=False)
     profileImageUrl = Column(String(512), nullable=False)
-    status = Column(Enum(UserStatus), nullable=False, default=UserStatus.ACTIVE, server_default=UserStatus.ACTIVE.value)
+    status = Column(
+        Enum(UserStatus, name="ActiveStatus"),
+        nullable=False,
+        default=UserStatus.ACTIVE,
+        server_default=UserStatus.ACTIVE.value,
+    )
     code = Column(String(10), nullable=False)
     vibeVector = Column(JSONB, nullable=False)
-    provider = Column(Enum(ProviderEnum), nullable=True)
+    provider = Column(Enum(ProviderEnum, name="AuthProvider"), nullable=True)
     providerUserId = Column(String(64), nullable=True)
     age = Column(Integer, nullable=False, default=50, server_default="50")
 
