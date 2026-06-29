@@ -1,0 +1,98 @@
+name: CD - Deploy FastAPI to Staging (ECS)
+
+on:
+  push:
+    branches: ["dev"]
+  workflow_dispatch:
+
+concurrency:
+  group: cd-fastapi-staging
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy FastAPI to Staging ECS
+    runs-on: ubuntu-latest
+    # 인증: OIDC 대신 임시로 IAM 액세스 키 사용 (secrets AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY).
+    #       추후 GitHub OIDC role로 교체 권장.
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (access key)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-northeast-2
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set image tag
+        id: tag
+        run: |
+          IMAGE_TAG="fastapi-ai-$(date -u +%Y%m%d)-${GITHUB_SHA}"
+          echo "tag=$IMAGE_TAG" >> "$GITHUB_OUTPUT"
+          echo "image=413790913159.dkr.ecr.ap-northeast-2.amazonaws.com/eum-backend:$IMAGE_TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push image to ECR
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ steps.tag.outputs.image }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Download current task definition
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition eum-fastapi \
+            --query taskDefinition > task-definition.json
+
+      - name: Render new task definition with new image
+        id: render
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: task-definition.json
+          container-name: eum-fastapi
+          image: ${{ steps.tag.outputs.image }}
+
+      - name: Register new task definition
+        id: register
+        run: |
+          set -euo pipefail
+
+          TD_ARN=$(aws ecs register-task-definition \
+            --cli-input-json "file://${{ steps.render.outputs.task-definition }}" \
+            --query 'taskDefinition.taskDefinitionArn' \
+            --output text)
+
+          echo "td_arn=$TD_ARN" >> "$GITHUB_OUTPUT"
+          echo "Registered task def: $TD_ARN"
+
+      - name: Deploy to ECS service
+        run: |
+          set -euo pipefail
+
+          aws ecs update-service \
+            --cluster eum-cluster \
+            --service eum-fastapi-service \
+            --task-definition "${{ steps.register.outputs.td_arn }}" \
+            --force-new-deployment > /dev/null
+
+      - name: Wait for ECS service stable
+        run: |
+          aws ecs wait services-stable \
+            --cluster eum-cluster \
+            --services eum-fastapi-service
