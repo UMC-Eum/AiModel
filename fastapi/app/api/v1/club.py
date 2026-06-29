@@ -27,11 +27,76 @@ MAX_CLUB_PAGE_SIZE = 50
 
 
 class AnalyzeClubVibeRequest(BaseModel):
-    clubId: Optional[int] = None
-    club_id: Optional[int] = None
-    transcript: Optional[str] = None
-    local_audio_path: Optional[str] = None
-    analysis_type: Optional[str] = "profile"
+    clubId: Optional[int] = Field(default=None, description="분석 대상 클럽 ID", examples=[12])
+    club_id: Optional[int] = Field(default=None, description="clubId 대체 필드", examples=[12])
+    transcript: Optional[str] = Field(
+        default=None,
+        description="클럽 소개/대화 전사 텍스트. local_audio_path가 없으면 필수입니다.",
+        examples=["저희 모임은 퇴근 후 가볍게 러닝하고 서로 기록을 공유하는 분위기입니다."],
+    )
+    local_audio_path: Optional[str] = Field(
+        default=None,
+        description="서버 로컬 오디오 파일 경로. transcript가 없을 때 STT 분석에 사용합니다.",
+        examples=["/tmp/club-intro.wav"],
+    )
+    analysis_type: Optional[str] = Field(
+        default="profile",
+        description="profile이면 vibeVector/vectorId를 포함하고, 다른 값이면 요약/키워드만 반환합니다.",
+        examples=["profile"],
+    )
+
+
+class AnalyzeClubVibeData(BaseModel):
+    clubId: int = Field(description="분석 대상 클럽 ID", examples=[12])
+    transcript: str = Field(
+        description="분석에 사용된 전사 텍스트",
+        examples=["저희 모임은 퇴근 후 가볍게 러닝하고 서로 기록을 공유하는 분위기입니다."],
+    )
+    summary: str = Field(description="전사 텍스트 요약", examples=["퇴근 후 러닝 기록을 공유하는 활동적인 모임입니다."])
+    vectorId: str | None = Field(default=None, description="생성된 벡터 식별자. analysis_type이 profile이 아니면 null입니다.", examples=["12"])
+    matchedKeywords: list[Dict[str, Any]] = Field(
+        description="분석 결과 매칭된 키워드 목록",
+        examples=[[{"id": 3, "keyword": "활동적", "category": "ACTIVITY", "score": 0.82}]],
+    )
+    vibeVector: list[float] | None = Field(
+        default=None,
+        description="생성된 클럽 vibe vector. analysis_type이 profile이 아니면 null입니다.",
+        examples=[[0.12, -0.04, 0.31]],
+    )
+
+
+class AnalyzeClubVibeSuccessBody(BaseModel):
+    data: AnalyzeClubVibeData
+
+
+class AnalyzeClubVibeResponse(BaseModel):
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "resultType": "SUCCESS",
+                "success": {
+                    "data": {
+                        "clubId": 12,
+                        "transcript": "저희 모임은 퇴근 후 가볍게 러닝하고 서로 기록을 공유하는 분위기입니다.",
+                        "summary": "퇴근 후 러닝 기록을 공유하는 활동적인 모임입니다.",
+                        "vectorId": "12",
+                        "matchedKeywords": [{"id": 3, "keyword": "활동적", "category": "ACTIVITY", "score": 0.82}],
+                        "vibeVector": [0.12, -0.04, 0.31],
+                    }
+                },
+                "error": None,
+                "meta": {
+                    "timestamp": "2026-06-25T05:32:12.922Z",
+                    "path": "/api/v1/onboarding/club-vibe/analyze",
+                },
+            }
+        }
+    )
+
+    resultType: str = Field(examples=["SUCCESS"])
+    success: AnalyzeClubVibeSuccessBody
+    error: None = None
+    meta: "ApiMetaDoc"
 
 
 class ClubRecommendationItem(BaseModel):
@@ -323,7 +388,56 @@ async def recommend_clubs(
     )
 
 
-@router.post("/v1/onboarding/club-vibe/analyze")
+@router.post(
+    "/v1/onboarding/club-vibe/analyze",
+    response_model=AnalyzeClubVibeResponse,
+    tags=["onboarding"],
+    summary="클럽 vibe 분석",
+    description=(
+        "클럽 소개 또는 오디오 전사 내용을 분석해 요약, 매칭 키워드, vibe vector를 반환합니다. "
+        "`transcript`가 없고 `local_audio_path`가 있으면 STT로 전사한 뒤 분석합니다."
+    ),
+    responses={
+        400: {
+            "model": ErrorResponse,
+            "description": "clubId 또는 분석 입력값 누락",
+            "content": {
+                "application/json": {
+                    "examples": {
+                        "missingClubId": {
+                            "summary": "clubId 누락",
+                            "value": {
+                                "resultType": "FAIL",
+                                "success": None,
+                                "error": {"code": "CLUB-001", "message": "clubId(또는 club_id)가 필요합니다."},
+                                "meta": {
+                                    "timestamp": "2026-06-25T05:33:19.079Z",
+                                    "path": "/api/v1/onboarding/club-vibe/analyze",
+                                },
+                            },
+                        },
+                        "missingTranscript": {
+                            "summary": "분석 입력값 누락",
+                            "value": {
+                                "resultType": "FAIL",
+                                "success": None,
+                                "error": {"code": "CLUB-002", "message": "transcript 또는 local_audio_path가 필요합니다."},
+                                "meta": {
+                                    "timestamp": "2026-06-25T05:33:19.079Z",
+                                    "path": "/api/v1/onboarding/club-vibe/analyze",
+                                },
+                            },
+                        },
+                    }
+                }
+            },
+        },
+        422: {
+            "model": ErrorResponse,
+            "description": "요청 본문 형식 오류",
+        },
+    },
+)
 async def analyze_club_vibe(payload: AnalyzeClubVibeRequest, request: Request) -> Dict[str, Any]:
     club_id = payload.clubId if payload.clubId is not None else payload.club_id
 
