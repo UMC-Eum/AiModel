@@ -15,6 +15,7 @@ app.include_router(health.router, prefix="/api")
 app.include_router(onboarding.router, prefix="/api")
 app.include_router(recommendation.router, prefix="/api")
 app.include_router(club.router, prefix="/api")
+app.include_router(club.onboarding_router, prefix="/api")
 
 logger = logging.getLogger(__name__)
 

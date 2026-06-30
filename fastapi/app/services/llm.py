@@ -94,9 +94,13 @@ async def _generate_semantic_embedding(transcript: str) -> List[float]:
     return normalize_vector(embedding)
 
 
-async def analyze_voice_profile(transcript: str, user_id: Optional[int] = None) -> Tuple[str, List[Dict[str, Any]], List[float]]:
+async def analyze_voice_profile(
+    transcript: str,
+    user_id: Optional[int] = None,
+    embedding_input: Optional[str] = None,
+) -> Tuple[str, List[Dict[str, Any]], List[float]]:
     """전사문을 임베딩하고 키워드를 추출해 반환한다 (DB 저장 없음)."""
-    embed_task = asyncio.create_task(_generate_semantic_embedding(transcript))
+    embed_task = asyncio.create_task(_generate_semantic_embedding(embedding_input or transcript))
     keyword_task = asyncio.create_task(_extract_keywords(transcript))
 
     vector, matched_keywords = await asyncio.gather(embed_task, keyword_task)

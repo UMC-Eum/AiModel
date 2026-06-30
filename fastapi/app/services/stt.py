@@ -40,10 +40,6 @@ def _transcribe_file(file_path: str) -> dict[str, Any]:
     return {"transcript": result.text}
 
 
-def transcribe_local_audio(file_path: str) -> dict[str, Any]:
-    return _transcribe_file(file_path)
-
-
 def _audio_suffix(audio_url: str) -> str:
     suffix = Path(urlparse(audio_url).path).suffix.lower()
     return suffix if suffix in SUPPORTED_AUDIO_SUFFIXES else ".mp3"

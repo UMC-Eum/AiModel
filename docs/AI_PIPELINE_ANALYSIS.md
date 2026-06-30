@@ -85,26 +85,25 @@
 ```
 [사용자 요청]
      │
-     ├── transcript 있음? ──────────────────────────┐
-     │                                              │
-     ├── audioUrl 있음?                            │
-     │        │                                    │
-     │        ▼                                    │
-     │ [Presigned URL 다운로드]                    │
-     │        │                                    │
-     └── local_audio_path 있음?                     │
-              │                                    │
-              ▼                                    ▼
-    [STT: gpt-4o-mini-transcribe]         [텍스트 직접 사용]
-    ⚠️ 동기 처리 (블로킹)                          │
-              │                                    │
-              └──────────────┬─────────────────────┘
-                             │
-                    [트랜스크립트 확보]
-                             │
-               ┌─────────────┼─────────────┐
-               │             │             │
-               ▼             ▼             ▼
+     ▼
+    [introAudioUrl + birthdate + sex]
+     │
+     ▼
+    [Presigned URL 다운로드]
+     │
+     ▼
+    [STT: gpt-4o-mini-transcribe]
+    ⚠️ 동기 처리 (블로킹)
+     │
+     ▼
+    [트랜스크립트 확보]
+     │
+     ├── birthdate → 만 나이 계산
+     ├── sex 포함
+     │
+     ├─────────────┬─────────────┐
+     │             │             │
+     ▼             ▼             ▼
     [임베딩 생성]    [키워드 추출]    [요약 생성]
     text-embedding-  gpt-4o-mini     gpt-4o-mini
     3-large          temp=0.1        temp=0.2
@@ -140,7 +139,7 @@
     "data": {
       "transcript": "저는 아침에 일찍 일어나서 산책을 즐겨요...",
       "summary": "아침형 인간으로 규칙적인 생활을 즐기며 자연과 교감을 중요시합니다.",
-      "vectorId": "42",
+      "vectorId": null,
       "matchedKeywords": [
         {"id": 1, "keyword": "아침형", "category": "생활·일상", "score": 0.95},
         {"id": 7, "keyword": "규칙적", "category": "생활·일상", "score": 0.88}
@@ -167,13 +166,14 @@
 ```
 1. 요청자(userId) 로드
    └── vibeVector, sex 추출
+   └── targetSex 계산 (M → F, F → M)
 
 2. 후보군 DB 쿼리
    SELECT * FROM User WHERE
      status = 'ACTIVE'
      AND deletedAt IS NULL
      AND id ≠ userId
-     AND sex ≠ requester.sex       ← 이성만
+     AND sex = targetSex           ← M은 F, F는 M 후보만
      AND vibeVector IS NOT NULL
 
 3. 각 후보자에 대해 코사인 유사도 계산
@@ -302,7 +302,7 @@ User
 user_keywords
 ├── id          BigInt PK
 ├── userId      BigInt FK → User.id
-├── vectorId    String    ← user_id의 문자열 표현
+├── vectorId    String
 ├── keywordId   Integer   ← keywords.py의 id
 ├── keyword     String    ← 키워드 텍스트
 ├── category    String    ← 카테고리명
@@ -361,7 +361,7 @@ health.py
 | GET | `/health` | 기본 헬스체크 | ✅ 운영중 |
 | GET | `/api/v1/health/db` | MySQL 연결 확인 | ✅ 운영중 |
 | POST | `/api/v1/onboarding/voice-profile/analyze` | 음성→임베딩+키워드+요약 | ✅ 운영중 |
-| GET | `/api/v1/onboarding/matches/recommend?userId=&cursor=&size=` | 코사인 유사도 기반 추천(커서 페이지네이션) | ✅ 운영중 |
+| GET | `/api/v1/onboarding/matches/recommend?userId=&cursor=&size=` | 이성 후보군 내 코사인 유사도 기반 추천(커서 페이지네이션) | ✅ 운영중 |
 
 ---
 
@@ -401,10 +401,10 @@ await save_user_keywords(vector_id, user_id, keywords)
 #### A-2. STT 비동기 전환
 ```python
 # 현재 (동기/블로킹)
-def transcribe_local_audio(file_path: str) -> dict
+async def transcribe_audio_url(audio_url: str) -> dict
 
 # 개선 (비동기)
-async def transcribe_local_audio(file_path: str) -> dict
+async def transcribe_audio_url(audio_url: str) -> dict
     # asyncio.to_thread() 또는 AsyncOpenAI 사용
 ```
 동기 처리는 FastAPI의 이벤트 루프를 블로킹하여 동시 요청 처리 성능을 저하시킴.
