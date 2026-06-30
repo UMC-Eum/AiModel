@@ -87,6 +87,11 @@
      │
      ├── transcript 있음? ──────────────────────────┐
      │                                              │
+     ├── audioUrl 있음?                            │
+     │        │                                    │
+     │        ▼                                    │
+     │ [Presigned URL 다운로드]                    │
+     │        │                                    │
      └── local_audio_path 있음?                     │
               │                                    │
               ▼                                    ▼
@@ -374,7 +379,7 @@ health.py
 | 이슈 | 위치 | 설명 |
 |------|------|------|
 | DB 쓰기 비활성화 | `llm.py` | `save_vibe_vector()`, `save_user_keywords()` 주석처리됨 |
-| STT 동기 처리 | `stt.py` | `transcribe_local_audio()` 가 blocking → 응답 지연 |
+| STT 동기 처리 | `stt.py` | 로컬 파일 전사 호출이 blocking → 응답 지연 |
 | 벡터 인덱스 없음 | MySQL | 전체 테이블 스캔으로 유사도 계산 → 사용자 증가 시 성능 저하 |
 | 나이 필터 없음 | `recommendation.py` | 성별 필터만 있고 나이 범위 필터 미구현 |
 | idealVoiceUrl 미사용 | `user.py` | 이상형 음성 분석 파이프라인 미구현 |
