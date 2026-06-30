@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.exceptions import AppException
 from app.core.response import success_response
 from app.database import get_db
-from app.models.user import User, UserStatus
+from app.models.user import SexEnum, User, UserStatus
 
 router = APIRouter(tags=["recommendation"])
 
@@ -23,6 +23,10 @@ logger = logging.getLogger(__name__)
 SIMILARITY_THRESHOLD = 0.3
 DEFAULT_PAGE_SIZE = 20
 MAX_PAGE_SIZE = 50
+OPPOSITE_SEX = {
+    SexEnum.M: SexEnum.F,
+    SexEnum.F: SexEnum.M,
+}
 
 
 def _cosine_similarity(vec_a: List[float], vec_b: List[float]) -> float:
@@ -68,6 +72,12 @@ def _decode_cursor(cursor: str) -> Tuple[float, int]:
         raise AppException(code="RECOMMENDATION-005", message="cursor 값이 올바르지 않습니다.", status_code=400) from exc
 
 
+def _opposite_sex(sex: SexEnum | None) -> SexEnum:
+    if sex not in OPPOSITE_SEX:
+        raise AppException(code="RECOMMENDATION-006", message="요청 유저의 sex 값이 올바르지 않습니다.", status_code=400)
+    return OPPOSITE_SEX[sex]
+
+
 def _is_after_cursor(item: Dict[str, Any], cursor_score: float, cursor_user_id: int) -> bool:
     item_score = item["similarityScore"]
     item_user_id = item["userId"]
@@ -96,23 +106,25 @@ async def _build_scored_recommendations(user_id: int, db: AsyncSession) -> List[
         raise AppException(code="RECOMMENDATION-003", message="요청 유저의 vibeVector가 없습니다.", status_code=400)
 
     requester_sex = requester.sex
+    target_sex = _opposite_sex(requester_sex)
     logger.info(
         "requester loaded",
         extra={
             "userId": user_id,
             "sex": requester_sex.value if requester_sex else None,
+            "target_sex": target_sex.value,
             "vector_len": len(requester_vector),
         },
     )
 
-    # 2) 후보군 조회 (조건 필터)
+    # 2) 후보군 조회 (이성 후보군 필터)
     try:
         candidates_row = await db.execute(
             select(User).where(
                 User.status == UserStatus.ACTIVE,
                 User.deletedAt.is_(None),
                 User.id != user_id,
-                User.sex != requester_sex,
+                User.sex == target_sex,
                 User.vibeVector.is_not(None),
             )
         )
@@ -123,10 +135,10 @@ async def _build_scored_recommendations(user_id: int, db: AsyncSession) -> List[
 
     logger.info(
         "candidates fetched",
-        extra={"userId": user_id, "candidate_count": len(candidates)},
+        extra={"userId": user_id, "target_sex": target_sex.value, "candidate_count": len(candidates)},
     )
 
-    # 3) 유사도 계산 및 정렬
+    # 3) 이성 후보군 안에서 코사인 유사도 계산 및 정렬
     scored = []
     requester_dim = len(requester_vector)
     for candidate in candidates:

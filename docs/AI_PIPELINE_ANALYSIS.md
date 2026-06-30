@@ -166,13 +166,14 @@
 ```
 1. 요청자(userId) 로드
    └── vibeVector, sex 추출
+   └── targetSex 계산 (M → F, F → M)
 
 2. 후보군 DB 쿼리
    SELECT * FROM User WHERE
      status = 'ACTIVE'
      AND deletedAt IS NULL
      AND id ≠ userId
-     AND sex ≠ requester.sex       ← 이성만
+     AND sex = targetSex           ← M은 F, F는 M 후보만
      AND vibeVector IS NOT NULL
 
 3. 각 후보자에 대해 코사인 유사도 계산
@@ -360,7 +361,7 @@ health.py
 | GET | `/health` | 기본 헬스체크 | ✅ 운영중 |
 | GET | `/api/v1/health/db` | MySQL 연결 확인 | ✅ 운영중 |
 | POST | `/api/v1/onboarding/voice-profile/analyze` | 음성→임베딩+키워드+요약 | ✅ 운영중 |
-| GET | `/api/v1/onboarding/matches/recommend?userId=&cursor=&size=` | 코사인 유사도 기반 추천(커서 페이지네이션) | ✅ 운영중 |
+| GET | `/api/v1/onboarding/matches/recommend?userId=&cursor=&size=` | 이성 후보군 내 코사인 유사도 기반 추천(커서 페이지네이션) | ✅ 운영중 |
 
 ---
 
