@@ -119,7 +119,7 @@ graph TB
 flowchart TD
     START([" 사용자 요청 "])
     INPUT{"입력 타입?"}
-    AUDIO["🎵 로컬 오디오 파일\n(local_audio_path)"]
+    AUDIO["🎵 S3 presigned 오디오 URL\n(audioUrl)"]
     TEXT["📝 직접 텍스트\n(transcript)"]
     STT["🔊 STT 처리\ngpt-4o-mini-transcribe\n⚠️ 동기 처리"]
     TRANSCRIPT["📄 트랜스크립트\n(텍스트)"]
@@ -272,7 +272,7 @@ graph LR
 
     subgraph SERVICES["Services"]
         LLM["llm.py\nLLM 서비스\n• analyze_voice_profile\n• summarize_transcript\n• generate_embedding\n• extract_keywords"]
-        STT["stt.py\nSTT 서비스\n• transcribe_local_audio"]
+        STT["stt.py\nSTT 서비스\n• transcribe_audio_url"]
         KW["keywords.py\n키워드 레지스트리\n• 380개 키워드\n• KEYWORD_SYSTEM_PROMPT"]
         VIBE["vibe.py\n벡터 수학\n• normalize_vector\n• score_similarity"]
         STOR["storage.py\n영속성\n• save_vibe_vector\n• save_user_keywords\n• check_mysql_health"]

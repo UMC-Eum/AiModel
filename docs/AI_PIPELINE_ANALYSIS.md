@@ -87,12 +87,10 @@
      │
      ├── transcript 있음? ──────────────────────────┐
      │                                              │
-     ├── audioUrl 있음?                            │
-     │        │                                    │
-     │        ▼                                    │
-     │ [Presigned URL 다운로드]                    │
-     │        │                                    │
-     └── local_audio_path 있음?                     │
+     └── audioUrl 있음?                            │
+              │                                    │
+              ▼                                    │
+    [Presigned URL 다운로드]                       │
               │                                    │
               ▼                                    ▼
     [STT: gpt-4o-mini-transcribe]         [텍스트 직접 사용]
@@ -401,10 +399,10 @@ await save_user_keywords(vector_id, user_id, keywords)
 #### A-2. STT 비동기 전환
 ```python
 # 현재 (동기/블로킹)
-def transcribe_local_audio(file_path: str) -> dict
+async def transcribe_audio_url(audio_url: str) -> dict
 
 # 개선 (비동기)
-async def transcribe_local_audio(file_path: str) -> dict
+async def transcribe_audio_url(audio_url: str) -> dict
     # asyncio.to_thread() 또는 AsyncOpenAI 사용
 ```
 동기 처리는 FastAPI의 이벤트 루프를 블로킹하여 동시 요청 처리 성능을 저하시킴.
