@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from datetime import date
+from enum import Enum
+from typing import Any, Dict
 
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, ConfigDict, Field
@@ -13,26 +15,53 @@ from app.services.stt import AudioDownloadError, transcribe_audio_url
 router = APIRouter(tags=["onboarding"])
 
 
-class AnalyzeVoiceProfileRequest(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
+class Sex(str, Enum):
+    M = "M"
+    F = "F"
 
-    transcript: Optional[str] = Field(
-        default=None,
-        description="사용자 음성 전사 텍스트. audioUrl이 없으면 필수입니다.",
-        examples=["저는 조용한 카페에서 책 읽는 걸 좋아하고, 주말에는 가볍게 산책하는 편입니다."],
+
+def _calculate_age(birthdate: date, today: date | None = None) -> int:
+    today = today or date.today()
+    age = today.year - birthdate.year
+    if (today.month, today.day) < (birthdate.month, birthdate.day):
+        age -= 1
+    return age
+
+
+def _build_vibe_vector_input(transcript: str, age: int, sex: Sex) -> str:
+    return "\n".join(
+        [
+            "사용자 소개 전사:",
+            transcript,
+            "",
+            "사용자 기본 정보:",
+            f"- 나이: {age}세",
+            f"- 성별: {sex.value}",
+        ]
     )
-    audio_url: Optional[str] = Field(
-        default=None,
-        alias="audioUrl",
-        description="S3 presigned GET URL. transcript가 없을 때 STT 분석에 사용합니다.",
+
+
+class AnalyzeVoiceProfileRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={
+            "examples": [
+                {
+                    "introAudioUrl": "https://example-bucket.s3.ap-northeast-2.amazonaws.com/audio/user-voice.wav?...",
+                    "birthdate": "1969-05-14",
+                    "sex": "F",
+                }
+            ]
+        },
+    )
+
+    intro_audio_url: str = Field(
+        alias="introAudioUrl",
+        description="사용자 소개 음성 파일의 S3 presigned GET URL입니다.",
         examples=["https://example-bucket.s3.ap-northeast-2.amazonaws.com/audio/user-voice.wav?..."],
     )
-    analysis_type: Optional[str] = Field(
-        default="profile",
-        description="profile이면 vibeVector/vectorId를 포함하고, 다른 값이면 요약/키워드만 반환합니다.",
-        examples=["profile"],
-    )
-    user_id: Optional[int] = Field(default=None, description="분석 대상 사용자 ID", examples=[9])
+    birthdate: date = Field(description="사용자 생년월일입니다. 만 나이 계산에 사용합니다.", examples=["1969-05-14"])
+    sex: Sex = Field(description="사용자 성별입니다. vibe vector 생성 입력에 포함합니다.", examples=["F"])
 
 
 class AnalyzeVoiceProfileData(BaseModel):
@@ -41,14 +70,14 @@ class AnalyzeVoiceProfileData(BaseModel):
         examples=["저는 조용한 카페에서 책 읽는 걸 좋아하고, 주말에는 가볍게 산책하는 편입니다."],
     )
     summary: str = Field(description="전사 텍스트 요약", examples=["조용한 공간에서 독서와 산책을 즐기는 차분한 성향입니다."])
-    vectorId: str | None = Field(default=None, description="생성된 벡터 식별자. analysis_type이 profile이 아니면 null입니다.", examples=["9"])
+    vectorId: str | None = Field(default=None, description="생성된 벡터 식별자입니다. 현재 DB 저장을 하지 않으므로 null입니다.", examples=[None])
     matchedKeywords: list[Dict[str, Any]] = Field(
         description="전사 텍스트에서 추출/매칭된 키워드 목록입니다. 각 항목은 키워드 ID, 이름, 카테고리, 점수를 포함합니다.",
         examples=[[{"id": 21, "keyword": "차분함", "category": "PERSONALITY", "score": 0.86}]],
     )
     vibeVector: list[float] | None = Field(
         default=None,
-        description="생성된 사용자 vibe vector입니다. analysis_type이 profile이 아니면 null입니다.",
+        description="생성된 사용자 vibe vector입니다.",
         examples=[[0.12, -0.04, 0.31]],
     )
 
@@ -64,7 +93,7 @@ class ApiMetaDoc(BaseModel):
 
 class ApiErrorDoc(BaseModel):
     code: str = Field(description="서비스 에러 코드", examples=["ONBOARDING-001"])
-    message: str = Field(description="에러 메시지", examples=["transcript 또는 audioUrl이 필요합니다."])
+    message: str = Field(description="에러 메시지", examples=["introAudioUrl, birthdate, sex가 필요합니다."])
 
 
 class AnalyzeVoiceProfileResponse(BaseModel):
@@ -76,7 +105,7 @@ class AnalyzeVoiceProfileResponse(BaseModel):
                     "data": {
                         "transcript": "저는 조용한 카페에서 책 읽는 걸 좋아하고, 주말에는 가볍게 산책하는 편입니다.",
                         "summary": "조용한 공간에서 독서와 산책을 즐기는 차분한 성향입니다.",
-                        "vectorId": "9",
+                        "vectorId": None,
                         "matchedKeywords": [{"id": 21, "keyword": "차분함", "category": "PERSONALITY", "score": 0.86}],
                         "vibeVector": [0.12, -0.04, 0.31],
                     }
@@ -108,25 +137,24 @@ class ErrorResponse(BaseModel):
     response_model=AnalyzeVoiceProfileResponse,
     summary="사용자 voice profile 분석",
     description=(
-        "사용자 음성 또는 전사 텍스트를 분석해 요약, 매칭 키워드, vibe vector를 반환합니다. "
-        "`transcript`가 없고 `audioUrl`이 있으면 STT로 전사한 뒤 분석합니다. "
+        "`introAudioUrl`의 사용자 소개 음성을 STT로 전사한 뒤, 전사 텍스트와 birthdate로 계산한 나이, sex를 함께 사용해 vibe vector를 생성합니다. "
         "현재 생성된 `vibeVector`와 `matchedKeywords`는 응답으로 반환되며 DB에 직접 저장하지 않습니다."
     ),
     responses={
         400: {
             "model": ErrorResponse,
-            "description": "분석 입력값 누락 또는 audioUrl 다운로드 실패",
+            "description": "필수 입력값 누락, birthdate 오류 또는 다운로드 실패",
             "content": {
                 "application/json": {
                     "examples": {
                         "missingInput": {
-                            "summary": "분석 입력값 누락",
+                            "summary": "필수 입력값 누락",
                             "value": {
                                 "resultType": "FAIL",
                                 "success": None,
                                 "error": {
                                     "code": "ONBOARDING-001",
-                                    "message": "transcript 또는 audioUrl이 필요합니다.",
+                                    "message": "introAudioUrl, birthdate, sex가 필요합니다.",
                                 },
                                 "meta": {
                                     "timestamp": "2026-06-30T05:32:12.922Z",
@@ -135,13 +163,13 @@ class ErrorResponse(BaseModel):
                             },
                         },
                         "audioDownloadFailed": {
-                            "summary": "audioUrl 다운로드 실패",
+                            "summary": "introAudioUrl 다운로드 실패",
                             "value": {
                                 "resultType": "FAIL",
                                 "success": None,
                                 "error": {
                                     "code": "ONBOARDING-002",
-                                    "message": "audioUrl 다운로드 실패(status=403)",
+                                    "message": "introAudioUrl 다운로드 실패(status=403)",
                                 },
                                 "meta": {
                                     "timestamp": "2026-06-30T05:32:12.922Z",
@@ -160,29 +188,40 @@ class ErrorResponse(BaseModel):
     },
 )
 async def analyze(payload: AnalyzeVoiceProfileRequest, request: Request) -> Dict[str, Any]:
-    transcript_text = payload.transcript
+    if not payload.intro_audio_url:
+        raise AppException(
+            code="ONBOARDING-001",
+            message="introAudioUrl, birthdate, sex가 필요합니다.",
+            status_code=400,
+        )
 
-    if not transcript_text:
-        try:
-            if payload.audio_url:
-                stt_result = await transcribe_audio_url(payload.audio_url)
-                transcript_text = stt_result.get("transcript", "")
-        except AudioDownloadError as exc:
-            raise AppException(code="ONBOARDING-002", message=str(exc), status_code=400) from exc
+    age = _calculate_age(payload.birthdate)
+    if age < 0:
+        raise AppException(
+            code="ONBOARDING-003",
+            message="birthdate는 미래 날짜일 수 없습니다.",
+            status_code=400,
+        )
+
+    try:
+        stt_result = await transcribe_audio_url(payload.intro_audio_url)
+        transcript_text = stt_result.get("transcript", "")
+    except AudioDownloadError as exc:
+        raise AppException(code="ONBOARDING-002", message=str(exc).replace("audioUrl", "introAudioUrl"), status_code=400) from exc
 
     if not transcript_text:
         raise AppException(
             code="ONBOARDING-001",
-            message="transcript 또는 audioUrl이 필요합니다.",
+            message="introAudioUrl에서 전사 텍스트를 추출할 수 없습니다.",
             status_code=400,
         )
 
     summary = await summarize_transcript(transcript_text)
-    vector_id, matched_keywords, vibe_vector = await analyze_voice_profile(transcript_text, payload.user_id)
-
-    if payload.analysis_type != "profile":
-        vibe_vector = None
-        vector_id = None
+    vector_input = _build_vibe_vector_input(transcript_text, age, payload.sex)
+    vector_id, matched_keywords, vibe_vector = await analyze_voice_profile(
+        transcript_text,
+        embedding_input=vector_input,
+    )
 
     return success_response(
         request,

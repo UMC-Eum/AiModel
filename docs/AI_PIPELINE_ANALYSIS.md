@@ -85,24 +85,25 @@
 ```
 [사용자 요청]
      │
-     ├── transcript 있음? ──────────────────────────┐
-     │                                              │
-     └── audioUrl 있음?                            │
-              │                                    │
-              ▼                                    │
-    [Presigned URL 다운로드]                       │
-              │                                    │
-              ▼                                    ▼
-    [STT: gpt-4o-mini-transcribe]         [텍스트 직접 사용]
-    ⚠️ 동기 처리 (블로킹)                          │
-              │                                    │
-              └──────────────┬─────────────────────┘
-                             │
-                    [트랜스크립트 확보]
-                             │
-               ┌─────────────┼─────────────┐
-               │             │             │
-               ▼             ▼             ▼
+     ▼
+    [introAudioUrl + birthdate + sex]
+     │
+     ▼
+    [Presigned URL 다운로드]
+     │
+     ▼
+    [STT: gpt-4o-mini-transcribe]
+    ⚠️ 동기 처리 (블로킹)
+     │
+     ▼
+    [트랜스크립트 확보]
+     │
+     ├── birthdate → 만 나이 계산
+     ├── sex 포함
+     │
+     ├─────────────┬─────────────┐
+     │             │             │
+     ▼             ▼             ▼
     [임베딩 생성]    [키워드 추출]    [요약 생성]
     text-embedding-  gpt-4o-mini     gpt-4o-mini
     3-large          temp=0.1        temp=0.2
@@ -138,7 +139,7 @@
     "data": {
       "transcript": "저는 아침에 일찍 일어나서 산책을 즐겨요...",
       "summary": "아침형 인간으로 규칙적인 생활을 즐기며 자연과 교감을 중요시합니다.",
-      "vectorId": "42",
+      "vectorId": null,
       "matchedKeywords": [
         {"id": 1, "keyword": "아침형", "category": "생활·일상", "score": 0.95},
         {"id": 7, "keyword": "규칙적", "category": "생활·일상", "score": 0.88}
@@ -300,7 +301,7 @@ User
 user_keywords
 ├── id          BigInt PK
 ├── userId      BigInt FK → User.id
-├── vectorId    String    ← user_id의 문자열 표현
+├── vectorId    String
 ├── keywordId   Integer   ← keywords.py의 id
 ├── keyword     String    ← 키워드 텍스트
 ├── category    String    ← 카테고리명
