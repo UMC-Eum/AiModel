@@ -3,12 +3,12 @@
 STT 연동, LLM 프롬프트 파이프라인, 키워드 매핑, vibe vector 생성을 담당하는 AI 전용 서비스입니다. 기존 NestJS 백엔드가 소비할 버전드 API를 제공합니다.
 
 ## 예정된 엔드포인트
-- `POST /api/v1/onboarding/voice-profile/analyze`: 전사본/오디오를 분석해 요약, 키워드 후보, vibe vector 반환.
+- `POST /api/v1/onboarding/voice-profile/analyze`: 전사본/S3 presigned 오디오 URL/로컬 오디오를 분석해 요약, 키워드 후보, vibe vector 반환.
 - `GET /api/v1/onboarding/matches/recommend`: 커서 페이지네이션 기반 추천, Nest 측 응답 계약에 맞춰 제공.
 
 ## 다음 단계
 1. 의존성 관리(`poetry`/`pip`)로 FastAPI, Pydantic, AWS HTTP 클라이언트 추가.
-2. `app/services/*`에서 STT(AWS), LLM, 벡터 연산을 구현.
+2. `app/services/*`에서 STT, LLM, 벡터 연산을 구현.
 3. 프롬프트 출력과 전사본 고정 픽스처 기반 테스트 작성.
 4. NestJS ↔ FastAPI 간 인증/서명, 시크릿 관리, 레이트 리밋으로 보안 강화.
 
@@ -23,3 +23,9 @@ STT 연동, LLM 프롬프트 파이프라인, 키워드 매핑, vibe vector 생�
 - PostgreSQL async DSN을 사용합니다.
 - 권장 환경 변수: `DATABASE_URL=postgresql+asyncpg://user:password@host:5432/dbname`
 - `DATABASE_URL`이 없으면 `POSTGRES_DSN`/`postgres_dsn` 설정을 사용합니다.
+
+## 오디오 입력
+- 분석 API는 `transcript`를 우선 사용합니다.
+- `transcript`가 없으면 `audioUrl`(S3 presigned GET URL)을 다운로드해 STT를 수행합니다.
+- `local_audio_path`는 로컬 개발/하위호환용으로 유지합니다.
+- URL 다운로드 제한은 `MAX_AUDIO_DOWNLOAD_MB`, `AUDIO_DOWNLOAD_TIMEOUT_SECONDS`로 조정합니다.

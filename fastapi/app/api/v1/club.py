@@ -15,7 +15,7 @@ from app.core.exceptions import AppException
 from app.core.response import success_response
 from app.database import get_db
 from app.services.llm import analyze_voice_profile, summarize_transcript
-from app.services.stt import transcribe_local_audio
+from app.services.stt import AudioDownloadError, transcribe_audio_url, transcribe_local_audio
 
 router = APIRouter(tags=["club"])
 
@@ -27,12 +27,20 @@ MAX_CLUB_PAGE_SIZE = 50
 
 
 class AnalyzeClubVibeRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     clubId: Optional[int] = Field(default=None, description="분석 대상 클럽 ID", examples=[12])
     club_id: Optional[int] = Field(default=None, description="clubId 대체 필드", examples=[12])
     transcript: Optional[str] = Field(
         default=None,
-        description="클럽 소개/대화 전사 텍스트. local_audio_path가 없으면 필수입니다.",
+        description="클럽 소개/대화 전사 텍스트. audioUrl/local_audio_path가 없으면 필수입니다.",
         examples=["저희 모임은 퇴근 후 가볍게 러닝하고 서로 기록을 공유하는 분위기입니다."],
+    )
+    audio_url: Optional[str] = Field(
+        default=None,
+        alias="audioUrl",
+        description="S3 presigned GET URL. transcript가 없을 때 STT 분석에 사용합니다.",
+        examples=["https://example-bucket.s3.ap-northeast-2.amazonaws.com/audio/club-intro.wav?..."],
     )
     local_audio_path: Optional[str] = Field(
         default=None,
@@ -395,7 +403,7 @@ async def recommend_clubs(
     summary="클럽 vibe 분석",
     description=(
         "클럽 소개 또는 오디오 전사 내용을 분석해 요약, 매칭 키워드, vibe vector를 반환합니다. "
-        "`transcript`가 없고 `local_audio_path`가 있으면 STT로 전사한 뒤 분석합니다."
+        "`transcript`가 없고 `audioUrl` 또는 `local_audio_path`가 있으면 STT로 전사한 뒤 분석합니다."
     ),
     responses={
         400: {
@@ -421,7 +429,7 @@ async def recommend_clubs(
                             "value": {
                                 "resultType": "FAIL",
                                 "success": None,
-                                "error": {"code": "CLUB-002", "message": "transcript 또는 local_audio_path가 필요합니다."},
+                                "error": {"code": "CLUB-002", "message": "transcript, audioUrl 또는 local_audio_path가 필요합니다."},
                                 "meta": {
                                     "timestamp": "2026-06-25T05:33:19.079Z",
                                     "path": "/api/v1/onboarding/club-vibe/analyze",
@@ -450,14 +458,23 @@ async def analyze_club_vibe(payload: AnalyzeClubVibeRequest, request: Request) -
 
     transcript_text = payload.transcript
 
-    if not transcript_text and payload.local_audio_path:
-        stt_result = transcribe_local_audio(payload.local_audio_path)
-        transcript_text = stt_result.get("transcript", "")
+    if not transcript_text:
+        try:
+            if payload.audio_url:
+                stt_result = await transcribe_audio_url(payload.audio_url)
+                transcript_text = stt_result.get("transcript", "")
+            elif payload.local_audio_path:
+                stt_result = transcribe_local_audio(payload.local_audio_path)
+                transcript_text = stt_result.get("transcript", "")
+        except AudioDownloadError as exc:
+            raise AppException(code="CLUB-006", message=str(exc), status_code=400) from exc
+        except FileNotFoundError as exc:
+            raise AppException(code="CLUB-007", message=str(exc), status_code=400) from exc
 
     if not transcript_text:
         raise AppException(
             code="CLUB-002",
-            message="transcript 또는 local_audio_path가 필요합니다.",
+            message="transcript, audioUrl 또는 local_audio_path가 필요합니다.",
             status_code=400,
         )
 

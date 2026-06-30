@@ -6,6 +6,8 @@ class Settings(BaseSettings):
     env: str = Field(default="local")
     aws_region: str = Field(default="ap-northeast-2")
     stt_bucket: str = Field(default="")
+    max_audio_download_mb: int = Field(default=25)
+    audio_download_timeout_seconds: float = Field(default=30.0)
     llm_endpoint: str = Field(default="")
     openai_api_key: str = Field(default="")
     database_url: str = Field(default="")  # 예: postgresql+asyncpg://user:pass@host:5432/dbname
