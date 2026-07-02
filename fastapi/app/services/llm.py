@@ -7,9 +7,26 @@ from typing import Any, Dict, List, Optional, Tuple
 from openai import AsyncOpenAI, OpenAIError
 
 from app.core.config import get_settings
-from app.services.keywords import KEYWORD_SYSTEM_PROMPT
+from app.services.keywords import KEYWORD_SYSTEM_PROMPT, KEYWORDS
 # 저장은 비활성화 모드이므로 스토리지 모듈을 불러오지 않습니다.
 from app.services.vibe import normalize_vector
+
+KEYWORDS_BY_ID = {idx: keyword for idx, keyword in enumerate(KEYWORDS, start=1)}
+KEYWORDS_BY_TEXT = {keyword.text: (idx, keyword) for idx, keyword in enumerate(KEYWORDS, start=1)}
+
+
+def _resolve_keyword(keyword_id: int, keyword_text: str) -> Tuple[int, str, str]:
+    """LLM 응답을 서버 키워드 레지스트리 기준으로 보정한다."""
+    keyword = KEYWORDS_BY_ID.get(keyword_id)
+    if keyword is not None:
+        return keyword_id, keyword.text, keyword.category
+
+    text_match = KEYWORDS_BY_TEXT.get(keyword_text)
+    if text_match is not None:
+        resolved_id, keyword = text_match
+        return resolved_id, keyword.text, keyword.category
+
+    return keyword_id, keyword_text, ""
 
 
 def _client() -> AsyncOpenAI:
@@ -46,11 +63,16 @@ async def _extract_keywords(transcript: str) -> List[Dict[str, Any]]:
     results: List[Dict[str, Any]] = []
     for item in matched_raw:
         try:
+            keyword_id = int(item.get("id"))
+            keyword_text = str(item.get("keyword"))
+            resolved_id, resolved_keyword, resolved_category = _resolve_keyword(keyword_id, keyword_text)
+            if not resolved_category:
+                continue
             results.append(
                 {
-                    "id": int(item.get("id")),
-                    "keyword": str(item.get("keyword")),
-                    "category": str(item.get("category")),
+                    "id": resolved_id,
+                    "keyword": resolved_keyword,
+                    "category": resolved_category,
                     "score": float(item.get("score")),
                 }
             )
