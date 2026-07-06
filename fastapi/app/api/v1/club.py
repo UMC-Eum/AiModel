@@ -22,7 +22,6 @@ onboarding_router = APIRouter(tags=["onboarding"])
 
 logger = logging.getLogger(__name__)
 
-CLUB_SIMILARITY_THRESHOLD = 0.3
 DEFAULT_CLUB_PAGE_SIZE = 20
 MAX_CLUB_PAGE_SIZE = 50
 
@@ -325,7 +324,6 @@ async def recommend_clubs(
         params = {
             "user_id": userId,
             "areacode": areacode,
-            "threshold": CLUB_SIMILARITY_THRESHOLD,
             "limit": size + 1,
             "cursor_score": cursor_score,
             "cursor_club_id": cursor_club_id,
@@ -385,8 +383,7 @@ async def recommend_clubs(
                 )
                 SELECT *
                 FROM scored
-                WHERE "similarityScore" >= :threshold
-                  AND (
+                WHERE (
                       CAST(:cursor_score AS double precision) IS NULL
                       OR "similarityScore" < CAST(:cursor_score AS double precision)
                       OR (
