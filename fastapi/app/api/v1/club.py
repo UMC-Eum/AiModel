@@ -22,7 +22,6 @@ onboarding_router = APIRouter(tags=["onboarding"])
 
 logger = logging.getLogger(__name__)
 
-CLUB_SIMILARITY_THRESHOLD = 0.3
 DEFAULT_CLUB_PAGE_SIZE = 20
 MAX_CLUB_PAGE_SIZE = 50
 
@@ -230,7 +229,8 @@ def _decode_club_cursor(cursor: str) -> Tuple[float, int]:
     summary="유저 맞춤 클럽 추천",
     description=(
         "요청 유저의 `User.vibeVector`와 각 `Club.vibeVector`를 PostgreSQL pgvector cosine similarity로 비교해 "
-        "유사도가 높은 클럽을 추천합니다. 유저와 같은 시도/시군구에 속한 클럽만 대상으로 하며, "
+        "유사도가 높은 클럽을 추천합니다. `areacode`가 있으면 해당 주소 코드 클럽만 대상으로 하고, "
+        "없으면 유저와 같은 시도/시군구에 속한 클럽만 대상으로 하며, "
         "이미 가입했거나 가입 대기 중인 클럽은 제외합니다."
     ),
     responses={
@@ -277,6 +277,12 @@ def _decode_club_cursor(cursor: str) -> Tuple[float, int]:
 async def recommend_clubs(
     request: Request,
     userId: int = Query(..., description="추천 기준 사용자 ID", examples=[9]),
+    areacode: str | None = Query(
+        default=None,
+        description="추천 대상 클럽 주소 코드. 생략하면 유저 주소의 시도/시군구 기준으로 추천합니다.",
+        examples=["1159010800"],
+        min_length=1,
+    ),
     cursor: str | None = Query(
         default=None,
         description="이전 응답의 page.nextCursor. 첫 페이지 조회 시 생략합니다.",
@@ -317,7 +323,7 @@ async def recommend_clubs(
 
         params = {
             "user_id": userId,
-            "threshold": CLUB_SIMILARITY_THRESHOLD,
+            "areacode": areacode,
             "limit": size + 1,
             "cursor_score": cursor_score,
             "cursor_club_id": cursor_club_id,
@@ -355,8 +361,17 @@ async def recommend_clubs(
                     CROSS JOIN requester
                     WHERE c."deletedAt" IS NULL
                       AND c."vibeVector" IS NOT NULL
-                      AND ca."sidoCode" = requester."sidoCode"
-                      AND ca."sigunguCode" = requester."sigunguCode"
+                      AND (
+                          CAST(:areacode AS text) IS NULL
+                          OR c.code = CAST(:areacode AS text)
+                      )
+                      AND (
+                          CAST(:areacode AS text) IS NOT NULL
+                          OR (
+                              ca."sidoCode" = requester."sidoCode"
+                              AND ca."sigunguCode" = requester."sigunguCode"
+                          )
+                      )
                       AND NOT EXISTS (
                           SELECT 1
                           FROM "ClubUser" cu
@@ -368,8 +383,7 @@ async def recommend_clubs(
                 )
                 SELECT *
                 FROM scored
-                WHERE "similarityScore" >= :threshold
-                  AND (
+                WHERE (
                       CAST(:cursor_score AS double precision) IS NULL
                       OR "similarityScore" < CAST(:cursor_score AS double precision)
                       OR (
