@@ -14,6 +14,8 @@ RUN python -m pip install --upgrade pip \
     && python -m pip install -r requirements.txt
 
 COPY --chown=app:app fastapi/app ./app
+COPY --chown=app:app personality.csv ./personality.csv
+COPY --chown=app:app interest.csv ./interest.csv
 
 USER app
 

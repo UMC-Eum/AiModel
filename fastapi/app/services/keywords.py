@@ -1,7 +1,7 @@
 """고정 키워드 레지스트리.
 
-- RAW_PERSONALITY_CSV: PERSONALITY 키워드 원본 데이터 (305개).
-- RAW_INTEREST_CSV: INTEREST 키워드 원본 데이터 (77개).
+- RAW_PERSONALITY_CSV: PERSONALITY 키워드 원본 데이터 fallback.
+- RAW_INTEREST_CSV: INTEREST 키워드 원본 데이터 fallback.
 - KEYWORDS: KeywordEntry 리스트.
 - KEYWORD_INDEX: (카테고리, 키워드) -> 벡터 인덱스 매핑.
 - keywords_by_category(): 카테고리별 그룹핑 반환.
@@ -10,7 +10,9 @@
 from __future__ import annotations
 
 import re
+import csv
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Dict, List, Tuple
 
 PERSONALITY_CATEGORY = "PERSONALITY"
@@ -404,6 +406,7 @@ RAW_INTEREST_CSV = """1,독서
 
 @dataclass(frozen=True)
 class KeywordEntry:
+    id: int
     category: str
     text: str
     normalized_ws: str  # 공백 제거
@@ -419,26 +422,37 @@ def _normalize_plain(text: str) -> str:
     return re.sub(r"[^0-9a-zA-Zㄱ-ㅎ가-힣]+", "", text.lower())
 
 
-def _parse_category_csv(raw: str, category: str) -> List[KeywordEntry]:
+def _read_keyword_csv(filename: str, fallback: str) -> str:
+    current = Path(__file__).resolve()
+    candidates = [Path.cwd() / filename, *(parent / filename for parent in current.parents)]
+    for path in candidates:
+        if path.is_file():
+            return path.read_text(encoding="utf-8-sig")
+    return fallback
+
+
+def _parse_category_csv(raw: str, category: str, id_offset: int = 0) -> List[KeywordEntry]:
     entries: List[KeywordEntry] = []
     seen: set[Tuple[str, str]] = set()
-    for line in raw.splitlines():
-        line = line.strip()
-        if not line:
+    for row in csv.reader(raw.splitlines()):
+        if not row:
             continue
-        if "," in line:
-            _, text = line.split(",", 1)
-        else:
-            text = line
+        raw_id = row[0].strip()
+        text = row[1].strip() if len(row) > 1 else raw_id
         text = text.strip()
         if not text:
             continue
+        try:
+            keyword_id = int(raw_id) + id_offset
+        except ValueError:
+            keyword_id = len(entries) + 1 + id_offset
         key = (category, text)
         if key in seen:
             continue
         seen.add(key)
         entries.append(
             KeywordEntry(
+                id=keyword_id,
                 category=category,
                 text=text,
                 normalized_ws=_normalize_ws(text),
@@ -449,9 +463,19 @@ def _parse_category_csv(raw: str, category: str) -> List[KeywordEntry]:
 
 
 def _build_keywords() -> List[KeywordEntry]:
+    personality = _parse_category_csv(
+        _read_keyword_csv("personality.csv", RAW_PERSONALITY_CSV),
+        PERSONALITY_CATEGORY,
+    )
+    interest_id_offset = max((entry.id for entry in personality), default=0)
+    interest = _parse_category_csv(
+        _read_keyword_csv("interest.csv", RAW_INTEREST_CSV),
+        INTEREST_CATEGORY,
+        interest_id_offset,
+    )
     return [
-        *_parse_category_csv(RAW_PERSONALITY_CSV, PERSONALITY_CATEGORY),
-        *_parse_category_csv(RAW_INTEREST_CSV, INTEREST_CATEGORY),
+        *personality,
+        *interest,
     ]
 
 
@@ -468,10 +492,10 @@ def keywords_by_category() -> Dict[str, List[KeywordEntry]]:
     return grouped
 
 
-def _format_keyword_section(category: str, start_id: int) -> str:
+def _format_keyword_section(category: str) -> str:
     entries = [entry for entry in KEYWORDS if entry.category == category]
     items = ", ".join(
-        f"{start_id + offset}:{entry.text}" for offset, entry in enumerate(entries)
+        f"{entry.id}:{entry.text}" for entry in entries
     )
     return f"## {category}\n{items}"
 
@@ -480,7 +504,6 @@ def _build_keyword_system_prompt() -> str:
     personality_count = len(keywords_by_category().get(PERSONALITY_CATEGORY, []))
     interest_count = len(keywords_by_category().get(INTEREST_CATEGORY, []))
     total_count = len(KEYWORDS)
-    interest_start_id = personality_count + 1
     return f"""당신은 시니어 데이팅 앱의 사용자 음성 전사문을 분석하는 전문가입니다.
 아래 키워드 목록은 두 부류로 분류된 {total_count}개의 키워드입니다.
 - PERSONALITY: 인성/성향 키워드 {personality_count}개
@@ -488,9 +511,9 @@ def _build_keyword_system_prompt() -> str:
 사용자의 전사문을 읽고, 이 목록에서 실제로 관련 있는 키워드만 골라주세요.
 
 [키워드 목록]
-{_format_keyword_section(PERSONALITY_CATEGORY, 1)}
+{_format_keyword_section(PERSONALITY_CATEGORY)}
 
-{_format_keyword_section(INTEREST_CATEGORY, interest_start_id)}
+{_format_keyword_section(INTEREST_CATEGORY)}
 [키워드 목록 끝]
 
 출력 규칙:
