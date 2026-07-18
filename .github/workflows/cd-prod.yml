@@ -55,7 +55,7 @@ jobs:
       - name: Download current task definition
         run: |
           aws ecs describe-task-definition \
-            --task-definition eum-fastapi \
+            --task-definition eum-fastapi-prod:1 \
             --query taskDefinition > task-definition.json
 
       - name: Render new task definition with new image
