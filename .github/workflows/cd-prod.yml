@@ -35,7 +35,7 @@ jobs:
       - name: Set image tag
         id: tag
         run: |
-          IMAGE_TAG="fastapi-ai-prod-$(date -u +%Y%m%d)-${GITHUB_SHA}"
+          IMAGE_TAG="fastapi-ai-prod-$(date -u +%Y%m%d)-${GITHUB_SHA}-${GITHUB_RUN_NUMBER}-${GITHUB_RUN_ATTEMPT}"
           echo "tag=$IMAGE_TAG" >> "$GITHUB_OUTPUT"
           echo "image=413790913159.dkr.ecr.ap-northeast-2.amazonaws.com/eum-backend:$IMAGE_TAG" >> "$GITHUB_OUTPUT"
 
