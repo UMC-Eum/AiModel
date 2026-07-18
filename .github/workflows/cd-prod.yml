@@ -58,6 +58,27 @@ jobs:
             --task-definition eum-fastapi-prod:1 \
             --query taskDefinition > task-definition.json
 
+      - name: Set production secrets
+        run: |
+          set -euo pipefail
+
+          jq '
+            .containerDefinitions |= map(
+              if .name == "eum-fastapi-prod" then
+                .secrets = (
+                  ((.secrets // []) | map(select(.name != "DATABASE_URL" and .name != "OPENAI_API_KEY")))
+                  + [
+                    {"name": "DATABASE_URL", "valueFrom": "eum-backend-prod/DATABASE_URL"},
+                    {"name": "OPENAI_API_KEY", "valueFrom": "eum-fastapi/OPENAI_API_KEY"}
+                  ]
+                )
+              else
+                .
+              end
+            )
+          ' task-definition.json > task-definition.prod.json
+          mv task-definition.prod.json task-definition.json
+
       - name: Render new task definition with new image
         id: render
         uses: aws-actions/amazon-ecs-render-task-definition@v1
