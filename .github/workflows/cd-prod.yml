@@ -1,8 +1,6 @@
 name: CD - Deploy FastAPI to Production (ECS)
 
 on:
-  push:
-    branches: ["main"]
   workflow_dispatch:
 
 concurrency:
