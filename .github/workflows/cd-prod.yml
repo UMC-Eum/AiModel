@@ -55,8 +55,18 @@ jobs:
       - name: Download current task definition
         run: |
           aws ecs describe-task-definition \
-            --task-definition eum-fastapi-prod:1 \
+            --task-definition eum-fastapi-prod \
             --query taskDefinition > task-definition.json
+
+      - name: Validate task definition network mode
+        run: |
+          set -euo pipefail
+
+          NETWORK_MODE=$(jq -r '.networkMode // "bridge"' task-definition.json)
+          if [ "$NETWORK_MODE" != "bridge" ]; then
+            echo "Expected task definition networkMode to be bridge, but got: $NETWORK_MODE"
+            exit 1
+          fi
 
       - name: Set production secrets
         run: |
