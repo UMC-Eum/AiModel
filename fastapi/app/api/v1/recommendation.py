@@ -6,56 +6,25 @@ import json
 import logging
 from typing import Any, Dict, List, Tuple
 
-import numpy as np
 from fastapi import APIRouter, Depends, Query, Request
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import AppException
 from app.core.response import success_response
 from app.database import get_db
-from app.models.user import SexEnum, User, UserStatus
+from app.models.user import SexEnum, User, UserIdealPersonality, UserPersonality, UserStatus
 
 router = APIRouter(tags=["recommendation"])
 
 logger = logging.getLogger(__name__)
 
-SIMILARITY_THRESHOLD = 0.3
 DEFAULT_PAGE_SIZE = 20
 MAX_PAGE_SIZE = 50
 OPPOSITE_SEX = {
     SexEnum.M: SexEnum.F,
     SexEnum.F: SexEnum.M,
 }
-
-
-def _cosine_similarity(vec_a: List[float], vec_b: List[float]) -> float:
-
-    if len(vec_a) != len(vec_b):
-        raise ValueError(f"vector length mismatch: {len(vec_a)} != {len(vec_b)}")
-    a = np.array(vec_a, dtype=float)
-    b = np.array(vec_b, dtype=float)
-    denom = float(np.linalg.norm(a) * np.linalg.norm(b))
-    if denom == 0.0:
-        return 0.0
-    return float(np.dot(a, b) / denom)
-
-
-def _to_vector(raw) -> List[float] | None:
-    """JSON 컬럼 값을 float 리스트로 변환."""
-    if raw is None:
-        return None
-    if isinstance(raw, str):
-        try:
-            raw = json.loads(raw)
-        except json.JSONDecodeError:
-            return None
-    if not isinstance(raw, (list, tuple)):
-        return None
-    try:
-        return [float(x) for x in raw]
-    except (TypeError, ValueError):
-        return None
 
 
 def _encode_cursor(item: Dict[str, Any]) -> str:
@@ -97,14 +66,6 @@ async def _build_scored_recommendations(user_id: int, db: AsyncSession) -> List[
         logger.warning("requester not found", extra={"userId": user_id})
         raise AppException(code="RECOMMENDATION-002", message="userId가 존재하지 않습니다.", status_code=404)
 
-    requester_vector = _to_vector(requester.vibeVector)
-    if not requester_vector:
-        logger.warning(
-            "requester vector missing",
-            extra={"userId": user_id, "sex": requester.sex, "status": requester.status.name},
-        )
-        raise AppException(code="RECOMMENDATION-003", message="요청 유저의 vibeVector가 없습니다.", status_code=400)
-
     requester_sex = requester.sex
     target_sex = _opposite_sex(requester_sex)
     logger.info(
@@ -113,22 +74,54 @@ async def _build_scored_recommendations(user_id: int, db: AsyncSession) -> List[
             "userId": user_id,
             "sex": requester_sex.value if requester_sex else None,
             "target_sex": target_sex.value,
-            "vector_len": len(requester_vector),
         },
     )
 
-    # 2) 후보군 조회 (이성 후보군 필터)
+    # 2) 요청 유저의 이상형 성격 키워드 조회
     try:
+        ideals_row = await db.execute(
+            select(UserIdealPersonality.personalityId).where(UserIdealPersonality.userId == user_id)
+        )
+        ideal_personality_ids = sorted({int(personality_id) for personality_id in ideals_row.scalars().all()})
+    except Exception as exc:
+        logger.exception("ideal personality fetch failed", extra={"userId": user_id})
+        raise AppException(code="RECOMMENDATION-004", message=f"이상형 키워드 조회 실패: {exc}", status_code=500) from exc
+
+    if not ideal_personality_ids:
+        logger.warning("requester ideal personality missing", extra={"userId": user_id})
+        raise AppException(
+            code="RECOMMENDATION-007",
+            message="이상형 녹음을 먼저 진행해주세요",
+            status_code=404,
+        )
+
+    logger.info(
+        "ideal personalities loaded",
+        extra={"userId": user_id, "ideal_personality_count": len(ideal_personality_ids)},
+    )
+
+    # 3) 후보군 조회 (이성 후보군 + 이상형 성격 키워드 매칭)
+    try:
+        matched_counts = (
+            select(
+                UserPersonality.userId.label("candidate_user_id"),
+                func.count(func.distinct(UserPersonality.personalityId)).label("matched_count"),
+            )
+            .where(UserPersonality.personalityId.in_(ideal_personality_ids))
+            .group_by(UserPersonality.userId)
+            .subquery()
+        )
         candidates_row = await db.execute(
-            select(User).where(
+            select(User, matched_counts.c.matched_count)
+            .join(matched_counts, User.id == matched_counts.c.candidate_user_id)
+            .where(
                 User.status == UserStatus.ACTIVE,
                 User.deletedAt.is_(None),
                 User.id != user_id,
                 User.sex == target_sex,
-                User.vibeVector.is_not(None),
             )
         )
-        candidates = candidates_row.scalars().all()
+        candidates = candidates_row.all()
     except Exception as exc:
         logger.exception("candidate fetch failed", extra={"userId": user_id})
         raise AppException(code="RECOMMENDATION-004", message=f"후보군 조회 실패: {exc}", status_code=500) from exc
@@ -138,32 +131,12 @@ async def _build_scored_recommendations(user_id: int, db: AsyncSession) -> List[
         extra={"userId": user_id, "target_sex": target_sex.value, "candidate_count": len(candidates)},
     )
 
-    # 3) 이성 후보군 안에서 코사인 유사도 계산 및 정렬
+    # 4) 이상형 성격 키워드 일치율 계산 및 정렬
     scored = []
-    requester_dim = len(requester_vector)
-    for candidate in candidates:
-        candidate_vec = _to_vector(candidate.vibeVector)
-        if not candidate_vec:
-            logger.debug("skip candidate without vector", extra={"candidateId": candidate.id})
-            continue
-        if len(candidate_vec) != requester_dim:
-            logger.warning(
-                "skip candidate with mismatched vector dimension",
-                extra={
-                    "candidateId": candidate.id,
-                    "requesterId": user_id,
-                    "requester_dim": requester_dim,
-                    "candidate_dim": len(candidate_vec),
-                },
-            )
-            continue
-        score = _cosine_similarity(requester_vector, candidate_vec)
-        if score < SIMILARITY_THRESHOLD:
-            logger.debug(
-                "skip candidate below threshold",
-                extra={"candidateId": candidate.id, "score": score, "threshold": SIMILARITY_THRESHOLD},
-            )
-            continue
+    ideal_count = len(ideal_personality_ids)
+    for candidate, matched_count in candidates:
+        matched_count = int(matched_count)
+        score = matched_count / ideal_count
         scored.append(
             {
                 "userId": candidate.id,
@@ -172,15 +145,18 @@ async def _build_scored_recommendations(user_id: int, db: AsyncSession) -> List[
                 "profileImageUrl": candidate.profileImageUrl,
                 "introText": candidate.introText,
                 "similarityScore": round(score, 4),
+                "_matchedCount": matched_count,
             }
         )
 
     logger.info(
         "scoring done",
-        extra={"userId": user_id, "scored_count": len(scored), "threshold": SIMILARITY_THRESHOLD},
+        extra={"userId": user_id, "scored_count": len(scored), "ideal_personality_count": ideal_count},
     )
 
-    scored.sort(key=lambda x: (-x["similarityScore"], x["userId"]))
+    scored.sort(key=lambda x: (-x["similarityScore"], -x["_matchedCount"], x["userId"]))
+    for item in scored:
+        item.pop("_matchedCount", None)
     return scored
 
 
