@@ -228,10 +228,29 @@ async def _build_scored_recommendations(user_id: int, db: AsyncSession) -> List[
         extra={
             "userId": user_id,
             "scored_count": len(scored),
+            "candidate_count": len(candidates),
+            "target_sex": target_sex.value,
             "ideal_personality_count": ideal_count,
             "vector_only_threshold": VECTOR_ONLY_THRESHOLD,
         },
     )
+
+    if not scored:
+        logger.warning(
+            "recommendation candidates empty after scoring",
+            extra={
+                "userId": user_id,
+                "candidate_count": len(candidates),
+                "target_sex": target_sex.value,
+                "ideal_personality_count": ideal_count,
+                "vector_only_threshold": VECTOR_ONLY_THRESHOLD,
+            },
+        )
+        raise AppException(
+            code="RECOMMENDATION-008",
+            message="아직 조건에 맞는 추천 상대를 찾지 못했어요",
+            status_code=404,
+        )
 
     scored.sort(key=_sort_key)
     return scored
