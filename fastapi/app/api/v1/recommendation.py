@@ -6,6 +6,7 @@ import json
 import logging
 from typing import Any, Dict, List, Tuple
 
+import numpy as np
 from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,22 +22,62 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_PAGE_SIZE = 20
 MAX_PAGE_SIZE = 50
+KEYWORD_WEIGHT = 0.7
+VECTOR_WEIGHT = 0.3
+VECTOR_ONLY_THRESHOLD = 0.3
 OPPOSITE_SEX = {
     SexEnum.M: SexEnum.F,
     SexEnum.F: SexEnum.M,
 }
 
 
+def _cosine_similarity(vec_a: List[float], vec_b: List[float]) -> float:
+    if len(vec_a) != len(vec_b):
+        raise ValueError(f"vector length mismatch: {len(vec_a)} != {len(vec_b)}")
+    a = np.array(vec_a, dtype=float)
+    b = np.array(vec_b, dtype=float)
+    denom = float(np.linalg.norm(a) * np.linalg.norm(b))
+    if denom == 0.0:
+        return 0.0
+    return float(np.dot(a, b) / denom)
+
+
+def _to_vector(raw) -> List[float] | None:
+    if raw is None:
+        return None
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except json.JSONDecodeError:
+            return None
+    if not isinstance(raw, (list, tuple)):
+        return None
+    try:
+        return [float(x) for x in raw]
+    except (TypeError, ValueError):
+        return None
+
+
 def _encode_cursor(item: Dict[str, Any]) -> str:
-    payload = {"similarityScore": item["similarityScore"], "userId": item["userId"]}
+    payload = {
+        "hasKeywordMatch": item.get("_hasKeywordMatch", False),
+        "similarityScore": item["similarityScore"],
+        "vectorScore": item.get("_vectorScore", 0.0),
+        "userId": item["userId"],
+    }
     raw = json.dumps(payload, separators=(",", ":")).encode("utf-8")
     return base64.urlsafe_b64encode(raw).decode("ascii")
 
 
-def _decode_cursor(cursor: str) -> Tuple[float, int]:
+def _decode_cursor(cursor: str) -> Dict[str, Any]:
     try:
         payload = json.loads(base64.urlsafe_b64decode(cursor.encode("ascii")).decode("utf-8"))
-        return float(payload["similarityScore"]), int(payload["userId"])
+        return {
+            "hasKeywordMatch": bool(payload.get("hasKeywordMatch", False)),
+            "similarityScore": float(payload["similarityScore"]),
+            "vectorScore": float(payload.get("vectorScore", 0.0)),
+            "userId": int(payload["userId"]),
+        }
     except (binascii.Error, json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
         raise AppException(code="RECOMMENDATION-005", message="cursor 값이 올바르지 않습니다.", status_code=400) from exc
 
@@ -47,10 +88,30 @@ def _opposite_sex(sex: SexEnum | None) -> SexEnum:
     return OPPOSITE_SEX[sex]
 
 
-def _is_after_cursor(item: Dict[str, Any], cursor_score: float, cursor_user_id: int) -> bool:
-    item_score = item["similarityScore"]
-    item_user_id = item["userId"]
-    return item_score < cursor_score or (item_score == cursor_score and item_user_id > cursor_user_id)
+def _sort_key(item: Dict[str, Any]) -> Tuple[int, float, float, int]:
+    return (
+        -int(item.get("_hasKeywordMatch", False)),
+        -float(item["similarityScore"]),
+        -float(item.get("_vectorScore", 0.0)),
+        int(item["userId"]),
+    )
+
+
+def _cursor_sort_key(payload: Dict[str, Any]) -> Tuple[int, float, float, int]:
+    return (
+        -int(payload["hasKeywordMatch"]),
+        -float(payload["similarityScore"]),
+        -float(payload["vectorScore"]),
+        int(payload["userId"]),
+    )
+
+
+def _is_after_cursor(item: Dict[str, Any], cursor_payload: Dict[str, Any]) -> bool:
+    return _sort_key(item) > _cursor_sort_key(cursor_payload)
+
+
+def _public_item(item: Dict[str, Any]) -> Dict[str, Any]:
+    return {key: value for key, value in item.items() if not key.startswith("_")}
 
 
 async def _build_scored_recommendations(user_id: int, db: AsyncSession) -> List[Dict[str, Any]]:
@@ -68,12 +129,14 @@ async def _build_scored_recommendations(user_id: int, db: AsyncSession) -> List[
 
     requester_sex = requester.sex
     target_sex = _opposite_sex(requester_sex)
+    requester_vector = _to_vector(requester.vibeVector)
     logger.info(
         "requester loaded",
         extra={
             "userId": user_id,
             "sex": requester_sex.value if requester_sex else None,
             "target_sex": target_sex.value,
+            "vector_len": len(requester_vector) if requester_vector else None,
         },
     )
 
@@ -100,7 +163,7 @@ async def _build_scored_recommendations(user_id: int, db: AsyncSession) -> List[
         extra={"userId": user_id, "ideal_personality_count": len(ideal_personality_ids)},
     )
 
-    # 3) 후보군 조회 (이성 후보군 + 이상형 성격 키워드 매칭)
+    # 3) 후보군 조회 (이성 후보군 전체 + 이상형 성격 키워드 매칭 개수)
     try:
         matched_counts = (
             select(
@@ -113,7 +176,7 @@ async def _build_scored_recommendations(user_id: int, db: AsyncSession) -> List[
         )
         candidates_row = await db.execute(
             select(User, matched_counts.c.matched_count)
-            .join(matched_counts, User.id == matched_counts.c.candidate_user_id)
+            .outerjoin(matched_counts, User.id == matched_counts.c.candidate_user_id)
             .where(
                 User.status == UserStatus.ACTIVE,
                 User.deletedAt.is_(None),
@@ -131,12 +194,20 @@ async def _build_scored_recommendations(user_id: int, db: AsyncSession) -> List[
         extra={"userId": user_id, "target_sex": target_sex.value, "candidate_count": len(candidates)},
     )
 
-    # 4) 이상형 성격 키워드 일치율 계산 및 정렬
+    # 4) 키워드 우선 + 벡터 보충 점수 계산 및 정렬
     scored = []
     ideal_count = len(ideal_personality_ids)
     for candidate, matched_count in candidates:
-        matched_count = int(matched_count)
-        score = matched_count / ideal_count
+        matched_count = int(matched_count or 0)
+        keyword_score = matched_count / ideal_count
+        has_keyword_match = matched_count > 0
+        vector_score = 0.0
+        candidate_vector = _to_vector(candidate.vibeVector)
+        if requester_vector and candidate_vector and len(requester_vector) == len(candidate_vector):
+            vector_score = max(0.0, _cosine_similarity(requester_vector, candidate_vector))
+        if not has_keyword_match and vector_score < VECTOR_ONLY_THRESHOLD:
+            continue
+        score = (KEYWORD_WEIGHT * keyword_score) + (VECTOR_WEIGHT * vector_score)
         scored.append(
             {
                 "userId": candidate.id,
@@ -146,17 +217,23 @@ async def _build_scored_recommendations(user_id: int, db: AsyncSession) -> List[
                 "introText": candidate.introText,
                 "similarityScore": round(score, 4),
                 "_matchedCount": matched_count,
+                "_hasKeywordMatch": has_keyword_match,
+                "_keywordScore": round(keyword_score, 4),
+                "_vectorScore": round(vector_score, 4),
             }
         )
 
     logger.info(
         "scoring done",
-        extra={"userId": user_id, "scored_count": len(scored), "ideal_personality_count": ideal_count},
+        extra={
+            "userId": user_id,
+            "scored_count": len(scored),
+            "ideal_personality_count": ideal_count,
+            "vector_only_threshold": VECTOR_ONLY_THRESHOLD,
+        },
     )
 
-    scored.sort(key=lambda x: (-x["similarityScore"], -x["_matchedCount"], x["userId"]))
-    for item in scored:
-        item.pop("_matchedCount", None)
+    scored.sort(key=_sort_key)
     return scored
 
 
@@ -171,18 +248,19 @@ async def recommend_onboarding_matches(
     scored = await _build_scored_recommendations(userId, db)
 
     if cursor:
-        cursor_score, cursor_user_id = _decode_cursor(cursor)
-        scored = [item for item in scored if _is_after_cursor(item, cursor_score, cursor_user_id)]
+        cursor_payload = _decode_cursor(cursor)
+        scored = [item for item in scored if _is_after_cursor(item, cursor_payload)]
 
     page_items = scored[: size + 1]
     has_next = len(page_items) > size
     items = page_items[:size]
     next_cursor = _encode_cursor(items[-1]) if has_next and items else None
+    response_items = [_public_item(item) for item in items]
 
     return success_response(
         request,
         {
-            "items": items,
+            "items": response_items,
             "page": {
                 "size": size,
                 "hasNext": has_next,
