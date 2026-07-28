@@ -52,3 +52,17 @@ class User(Base):
 
     def __repr__(self) -> str:  # pragma: no cover - 디버깅 헬퍼
         return f"User(id={self.id}, nickname={self.nickname!r})"
+
+
+class UserPersonality(Base):
+    __tablename__ = "UserPersonality"
+
+    userId = Column(BigInteger, primary_key=True)
+    personalityId = Column(Integer, primary_key=True)
+
+
+class UserIdealPersonality(Base):
+    __tablename__ = "UserIdealPersonality"
+
+    userId = Column(BigInteger, primary_key=True)
+    personalityId = Column(Integer, primary_key=True)
