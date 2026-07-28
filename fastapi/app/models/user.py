@@ -20,6 +20,7 @@ class UserStatus(str, enum.Enum):
 class ProviderEnum(str, enum.Enum):
     KAKAO = "KAKAO"
     APPLE = "APPLE"
+    LOCAL = "LOCAL"
 
 
 class User(Base):
